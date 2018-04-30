@@ -321,6 +321,7 @@ namespace nitrokey {
                       case stick20::device_status::no_user_password_unlock:
                         resp.last_command_status = static_cast<uint8_t>(stick10::command_status::AES_dec_failed);
                         resp.device_status = static_cast<uint8_t>(stick10::device_status::ok);
+                        break;
                       default:
                         LOG(std::string("Unknown storage device status, cannot translate: ") +
                                         std::to_string(resp.storage_status.device_status), Loglevel::DEBUG);
@@ -351,12 +352,14 @@ namespace nitrokey {
                       LOG("Status busy, decreasing receiving_retry_counter counter: " +
                                       std::to_string(receiving_retry_counter) + ", current delay:"
                           + std::to_string(retry_timeout.count()), Loglevel::DEBUG);
-                      LOG(std::string("Busy retry ")
+                      LOG(std::string("Busy retry: status ")
                           + std::to_string(resp.storage_status.device_status)
-                          + " "
+                          + ", "
                           + std::to_string(retry_timeout.count())
-                          + " "
+                          + "ms, counter "
                           + std::to_string(receiving_retry_counter)
+                            + ", progress: "
+                          + std::to_string(resp.storage_status.progress_bar_value)
                       , Loglevel::DEBUG_L1);
                     }
                   }
@@ -454,7 +457,7 @@ namespace nitrokey {
 
               if (resp.last_command_status != static_cast<uint8_t>(stick10::command_status::ok)){
                 dev->m_counters.command_result_not_equal_0_recv++;
-                LOG(std::string("Throw: CommandFailedException"), Loglevel::DEBUG_L1);
+                LOG(std::string("Throw: CommandFailedException ") + std::to_string(resp.last_command_status), Loglevel::DEBUG_L1);
                 throw CommandFailedException(resp.command_id, resp.last_command_status);
               }
 

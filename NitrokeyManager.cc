@@ -21,15 +21,16 @@
 
 #include <cstring>
 #include <iostream>
-#include "include/NitrokeyManager.h"
-#include "include/LibraryException.h"
+#include "libnitrokey/NitrokeyManager.h"
+#include "libnitrokey/LibraryException.h"
 #include <algorithm>
 #include <unordered_map>
 #include <stick20_commands.h>
-#include "include/misc.h"
+#include "libnitrokey/misc.h"
 #include <mutex>
-#include "include/cxx_semantics.h"
+#include "libnitrokey/cxx_semantics.h"
 #include <functional>
+#include <stick10_commands.h>
 
 std::mutex nitrokey::proto::send_receive_mtx;
 
@@ -77,9 +78,16 @@ using nitrokey::misc::strcpyT;
 
     NitrokeyManager::NitrokeyManager() : device(nullptr)
     {
-        set_debug(true);
+        set_debug(false);
     }
     NitrokeyManager::~NitrokeyManager() {
+        std::lock_guard<std::mutex> lock(mex_dev_com_manager);
+
+        for (auto d : connected_devices){
+            if (d.second == nullptr) continue;
+            d.second->disconnect();
+            connected_devices[d.first] = nullptr;
+        }
     }
 
     bool NitrokeyManager::set_current_device_speed(int retry_delay, int send_receive_delay){
@@ -95,6 +103,132 @@ using nitrokey::misc::strcpyT;
       device->set_receiving_delay(std::chrono::duration<int, std::milli>(send_receive_delay));
       device->set_retry_delay(std::chrono::duration<int, std::milli>(retry_delay));
       return true;
+    }
+
+    std::vector<std::string> NitrokeyManager::list_devices(){
+        std::lock_guard<std::mutex> lock(mex_dev_com_manager);
+
+        auto p = make_shared<Stick20>();
+        return p->enumerate(); // make static
+    }
+
+    std::vector<std::string> NitrokeyManager::list_devices_by_cpuID(){
+        using misc::toHex;
+        //disconnect default device
+        disconnect();
+
+        std::lock_guard<std::mutex> lock(mex_dev_com_manager);
+        LOGD1("Disconnecting registered devices");
+        for (auto & kv : connected_devices_byID){
+            if (kv.second != nullptr)
+                kv.second->disconnect();
+        }
+        connected_devices_byID.clear();
+
+        LOGD1("Enumerating devices");
+        std::vector<std::string> res;
+        auto d = make_shared<Stick20>();
+        const auto v = d->enumerate();
+        LOGD1("Discovering IDs");
+        for (auto & p: v){
+            d = make_shared<Stick20>();
+            LOGD1( std::string("Found: ") + p );
+            d->set_path(p);
+            try{
+                if (d->connect()){
+                    device = d;
+                    std::string id;
+                    try {
+                        const auto status = get_status_storage();
+                        const auto sc_id = toHex(status.ActiveSmartCardID_u32);
+                        const auto sd_id = toHex(status.ActiveSD_CardID_u32);
+                        id += sc_id + ":" + sd_id;
+                        id += "_p_" + p;
+                    }
+                    catch (const LongOperationInProgressException &e) {
+                        LOGD1(std::string("Long operation in progress, setting ID to: ") + p);
+                        id = p;
+                    }
+
+                    connected_devices_byID[id] = d;
+                    res.push_back(id);
+                    LOGD1( std::string("Found: ") + p + " => " + id);
+                } else{
+                    LOGD1( std::string("Could not connect to: ") + p);
+                }
+            }
+            catch (const DeviceCommunicationException &e){
+                LOGD1( std::string("Exception encountered: ") + p);
+            }
+        }
+        return res;
+    }
+
+    bool NitrokeyManager::connect_with_ID(const std::string id) {
+        std::lock_guard<std::mutex> lock(mex_dev_com_manager);
+
+        auto position = connected_devices_byID.find(id);
+        if (position == connected_devices_byID.end()) {
+            LOGD1(std::string("Could not find device ")+id + ". Refresh devices list with list_devices_by_cpuID().");
+            return false;
+        }
+
+        auto d = connected_devices_byID[id];
+        device = d;
+        current_device_id = id;
+
+        //validate connection
+        try{
+            get_status();
+        }
+        catch (const LongOperationInProgressException &){
+            //ignore
+        }
+        catch (const DeviceCommunicationException &){
+            d->disconnect();
+            current_device_id = "";
+            connected_devices_byID[id] = nullptr;
+            connected_devices_byID.erase(position);
+            return false;
+        }
+        nitrokey::log::Log::setPrefix(id);
+        LOGD1("Device successfully changed");
+        return true;
+    }
+
+        /**
+         * Connects device to path.
+         * Assumes devices are not being disconnected and caches connections (param cache_connections).
+         * @param path os-dependent device path
+         * @return false, when could not connect, true otherwise
+         */
+    bool NitrokeyManager::connect_with_path(std::string path) {
+        const bool cache_connections = false;
+
+        std::lock_guard<std::mutex> lock(mex_dev_com_manager);
+
+        if (cache_connections){
+            if(connected_devices.find(path) != connected_devices.end()
+                    && connected_devices[path] != nullptr) {
+                device = connected_devices[path];
+                return true;
+            }
+        }
+
+        auto p = make_shared<Stick20>();
+        p->set_path(path);
+
+        if(!p->connect()) return false;
+
+        if(cache_connections){
+            connected_devices [path] = p;
+        }
+
+        device = p; //previous device will be disconnected automatically
+        current_device_id = path;
+        nitrokey::log::Log::setPrefix(path);
+        LOGD1("Device successfully changed");
+        return true;
     }
 
     bool NitrokeyManager::connect() {
@@ -137,6 +271,21 @@ using nitrokey::misc::strcpyT;
                 throw std::runtime_error("Unknown model");
         }
         return device->connect();
+    }
+
+    bool NitrokeyManager::connect(device::DeviceModel device_model) {
+        const char *model_string;
+        switch (device_model) {
+            case device::DeviceModel::PRO:
+                model_string = "P";
+                break;
+            case device::DeviceModel::STORAGE:
+                model_string = "S";
+                break;
+            default:
+                throw std::runtime_error("Unknown model");
+        }
+        return connect(model_string);
     }
 
     shared_ptr<NitrokeyManager> NitrokeyManager::instance() {
@@ -232,7 +381,7 @@ using nitrokey::misc::strcpyT;
         return response.data();
       }
       catch (DeviceSendingFailure &e){
-        disconnect();
+//        disconnect();
         throw;
       }
     }
@@ -706,11 +855,11 @@ using nitrokey::misc::strcpyT;
     void NitrokeyManager::write_config(uint8_t numlock, uint8_t capslock, uint8_t scrolllock, bool enable_user_password,
                                        bool delete_user_password, const char *admin_temporary_password) {
         auto p = get_payload<stick10_08::WriteGeneralConfig>();
-        p.numlock = (uint8_t) numlock;
-        p.capslock = (uint8_t) capslock;
-        p.scrolllock = (uint8_t) scrolllock;
-        p.enable_user_password = (uint8_t) enable_user_password;
-        p.delete_user_password = (uint8_t) delete_user_password;
+        p.numlock = numlock;
+        p.capslock = capslock;
+        p.scrolllock = scrolllock;
+        p.enable_user_password = static_cast<uint8_t>(enable_user_password ? 1 : 0);
+        p.delete_user_password = static_cast<uint8_t>(delete_user_password ? 1 : 0);
         if (is_authorization_command_supported()){
           authorize_packet<stick10_08::WriteGeneralConfig, Authorize>(p, admin_temporary_password, device);
         } else {
@@ -751,15 +900,41 @@ using nitrokey::misc::strcpyT;
       return device->get_device_model();
     }
 
+    bool NitrokeyManager::is_smartcard_in_use(){
+      try{
+        stick20::CheckSmartcardUsage::CommandTransaction::run(device);
+      }
+      catch(const CommandFailedException & e){
+        return e.reason_smartcard_busy();
+      }
+      return false;
+    }
+
     int NitrokeyManager::get_minor_firmware_version(){
       switch(device->get_device_model()){
         case DeviceModel::PRO:{
           auto status_p = GetStatus::CommandTransaction::run(device);
-          return status_p.data().firmware_version; //7 or 8
+          return status_p.data().firmware_version_st.minor; //7 or 8
         }
         case DeviceModel::STORAGE:{
           auto status = stick20::GetDeviceStatus::CommandTransaction::run(device);
-          return status.data().versionInfo.minor;
+          auto test_firmware = status.data().versionInfo.build_iteration != 0;
+          if (test_firmware)
+            LOG("Development firmware detected. Increasing minor version number.", nitrokey::log::Loglevel::WARNING);
+          return status.data().versionInfo.minor + (test_firmware? 1 : 0);
+        }
+      }
+      return 0;
+    }
+    int NitrokeyManager::get_major_firmware_version(){
+      switch(device->get_device_model()){
+        case DeviceModel::PRO:{
+          auto status_p = GetStatus::CommandTransaction::run(device);
+          return status_p.data().firmware_version_st.major; //0
+        }
+        case DeviceModel::STORAGE:{
+          auto status = stick20::GetDeviceStatus::CommandTransaction::run(device);
+          return status.data().versionInfo.major;
         }
       }
       return 0;
@@ -789,6 +964,14 @@ using nitrokey::misc::strcpyT;
       misc::execute_password_command<stick20::EnableHiddenEncryptedPartition>(device, hidden_volume_password);
     }
 
+    void NitrokeyManager::set_encrypted_volume_read_only(const char* admin_pin) {
+        misc::execute_password_command<stick20::SetEncryptedVolumeReadOnly>(device, admin_pin);
+    }
+
+    void NitrokeyManager::set_encrypted_volume_read_write(const char* admin_pin) {
+        misc::execute_password_command<stick20::SetEncryptedVolumeReadWrite>(device, admin_pin);
+    }
+
     //TODO check is encrypted volume unlocked before execution
     //if not return library exception
     void NitrokeyManager::create_hidden_volume(uint8_t slot_nr, uint8_t start_percent, uint8_t end_percent,
@@ -801,15 +984,56 @@ using nitrokey::misc::strcpyT;
       stick20::SetupHiddenVolume::CommandTransaction::run(device, p);
     }
 
-    void NitrokeyManager::set_unencrypted_read_only(const char* user_pin) {
+    void NitrokeyManager::set_unencrypted_read_only_admin(const char* admin_pin) {
+      //from v0.49, v0.52+ it needs Admin PIN
+      if (set_unencrypted_volume_rorw_pin_type_user()){
+        LOG("set_unencrypted_read_only_admin is not supported for this version of Storage device. "
+                "Please update firmware to v0.52+. Doing nothing.", nitrokey::log::Loglevel::WARNING);
+        return;
+      }
+      misc::execute_password_command<stick20::SetUnencryptedVolumeReadOnlyAdmin>(device, admin_pin);
+    }
+
+    void NitrokeyManager::set_unencrypted_read_only(const char *user_pin) {
+        //until v0.48 (incl. v0.50 and v0.51) User PIN was sufficient
+        LOG("set_unencrypted_read_only is deprecated. Use set_unencrypted_read_only_admin instead.",
+            nitrokey::log::Loglevel::WARNING);
+      if (!set_unencrypted_volume_rorw_pin_type_user()){
+        LOG("set_unencrypted_read_only is not supported for this version of Storage device. Doing nothing.",
+            nitrokey::log::Loglevel::WARNING);
+        return;
+      }
       misc::execute_password_command<stick20::SendSetReadonlyToUncryptedVolume>(device, user_pin);
     }
 
-    void NitrokeyManager::set_unencrypted_read_write(const char* user_pin) {
+    void NitrokeyManager::set_unencrypted_read_write_admin(const char* admin_pin) {
+      //from v0.49, v0.52+ it needs Admin PIN
+      if (set_unencrypted_volume_rorw_pin_type_user()){
+        LOG("set_unencrypted_read_write_admin is not supported for this version of Storage device. "
+                "Please update firmware to v0.52+. Doing nothing.", nitrokey::log::Loglevel::WARNING);
+        return;
+      }
+      misc::execute_password_command<stick20::SetUnencryptedVolumeReadWriteAdmin>(device, admin_pin);
+    }
+
+    void NitrokeyManager::set_unencrypted_read_write(const char *user_pin) {
+        //until v0.48 (incl. v0.50 and v0.51) User PIN was sufficient
+      LOG("set_unencrypted_read_write is deprecated. Use set_unencrypted_read_write_admin instead.",
+          nitrokey::log::Loglevel::WARNING);
+      if (!set_unencrypted_volume_rorw_pin_type_user()){
+        LOG("set_unencrypted_read_write is not supported for this version of Storage device. Doing nothing.",
+            nitrokey::log::Loglevel::WARNING);
+        return;
+      }
       misc::execute_password_command<stick20::SendSetReadwriteToUncryptedVolume>(device, user_pin);
     }
 
-    void NitrokeyManager::export_firmware(const char* admin_pin) {
+    bool NitrokeyManager::set_unencrypted_volume_rorw_pin_type_user(){
+      auto minor_firmware_version = get_minor_firmware_version();
+      return minor_firmware_version <= 48 || minor_firmware_version == 50 || minor_firmware_version == 51;
+    }
+
+  void NitrokeyManager::export_firmware(const char* admin_pin) {
       misc::execute_password_command<stick20::ExportFirmware>(device, admin_pin);
     }
 
@@ -902,6 +1126,10 @@ using nitrokey::misc::strcpyT;
     auto data = stick20::ProductionTest::CommandTransaction::run(device);
     return data.data().SD_Card_Size_u8;
   }
+
+    const string NitrokeyManager::get_current_device_id() const {
+        return current_device_id;
+    }
 
 
 }
