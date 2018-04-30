@@ -1,4 +1,4 @@
-libnitrokey (3.3-1) UNRELEASED; urgency=medium
+libnitrokey (3.3-1) experimental; urgency=medium
 
   * Add git repository for packaging:
     - Vcs-* in debian/control
