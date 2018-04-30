@@ -3,6 +3,7 @@ libnitrokey (3.3-1) UNRELEASED; urgency=medium
   * Add git repository for packaging:
     - Vcs-* in debian/control
   * New upstream release
+    - Update debian/copyright
   * Bump standards-version to 4.1.4 without further change
   * Update symbols file to work with -03 optimizations (Closes: #893831)
 

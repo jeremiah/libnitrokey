@@ -3,8 +3,8 @@ Upstream-Name: libnitrokey
 Source: https://github.com/Nitrokey/libnitrokey
 
 Files: *
-Copyright: Nitrokey Team
-License: LGPL-3.0
+Copyright: 2015-2018 Nitrokey UG
+License: LGPL-3.0+
 
 Files: include/inttypes.h
 Copyright: 2004,2005,2007 Joerg Wunsch Copyright (c) 2005, Carlos Lamas All rights reserved.
@@ -16,13 +16,13 @@ License: Hidapi-BSD
 
 Files: debian/*
 Copyright: 2017 Scott Kitterman <scott@kitterman.com>
-License: LGPL-3.0
+License: LGPL-3.0+
 
-License: LGPL-3.0
+License: LGPL-3.0+
  This package is free software; you can redistribute it and/or
  modify it under the terms of the GNU Lesser General Public
  License as published by the Free Software Foundation; either
- version 3 of the License.
+ version 3 of the License, or any later version.
  .
  This package is distributed in the hope that it will be useful,
  but WITHOUT ANY WARRANTY; without even the implied warranty of
