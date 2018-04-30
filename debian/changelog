@@ -3,8 +3,9 @@ libnitrokey (3.3-1) UNRELEASED; urgency=medium
   * Add git repository for packaging:
     - Vcs-* in debian/control
   * New upstream release
+  * Bump standards-version to 4.1.4 without further change
 
- -- Scott Kitterman <scott@kitterman.com>  Sun, 29 Apr 2018 23:53:33 -0400
+ -- Scott Kitterman <scott@kitterman.com>  Sun, 29 Apr 2018 23:54:06 -0400
 
 libnitrokey (3.2-1) unstable; urgency=medium
 
