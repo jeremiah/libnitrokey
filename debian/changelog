@@ -1,0 +1,25 @@
+libnitrokey (3.2-1) unstable; urgency=medium
+
+  * New upstream release
+    - Drop debian/patches/add_pkg_config.patch, included upstream
+  * Add pkg-config to build-depends
+
+ -- Scott Kitterman <scott@kitterman.com>  Tue, 16 Jan 2018 21:27:11 -0500
+
+libnitrokey (3.1-2) unstable; urgency=medium
+
+  * Correct license statement in debian/copyright
+  * Update symbols files from build logs (Closes: #885242)
+  * Add libhidapi-dev to libnitrokey-dev depends so pkg-config library
+    detection works
+  * Bump standards-version to 4.1.3 without further change
+
+ -- Scott Kitterman <scott@kitterman.com>  Thu, 28 Dec 2017 11:00:03 -0500
+
+libnitrokey (3.1-1) unstable; urgency=medium
+
+  * Initial release (Closes: #885030)
+  * Add debian/patches/add_pkg_config.patch from upstream so pkg-config can
+    find the library (already used by some rdepends)
+
+ -- Scott Kitterman <scott@kitterman.com>  Fri, 22 Dec 2017 20:01:45 -0500
