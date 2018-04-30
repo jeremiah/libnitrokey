@@ -30,6 +30,7 @@
 #include "stick20_commands.h"
 #include <vector>
 #include <memory>
+#include <unordered_map>
 
 namespace nitrokey {
     using namespace nitrokey::device;
@@ -67,7 +68,19 @@ char * strndup(const char* str, size_t maxlen);
         bool get_time(uint64_t time = 0);
         bool erase_totp_slot(uint8_t slot_number, const char *temporary_password);
         bool erase_hotp_slot(uint8_t slot_number, const char *temporary_password);
+        std::vector<std::string> list_devices();
+        std::vector<std::string> list_devices_by_cpuID();
+
+        /**
+         * Connect to the device using unique smartcard:datacard id.
+         * Needs list_device_by_cpuID() run first
+         * @param id Current ID of the target device
+         * @return true on success, false on failure
+         */
+        bool connect_with_ID(const std::string id);
+        bool connect_with_path (std::string path);
         bool connect(const char *device_model);
+        bool connect(device::DeviceModel device_model);
         bool connect();
         bool disconnect();
         bool is_connected() throw() ;
@@ -126,9 +139,37 @@ char * strndup(const char* str, size_t maxlen);
         void unlock_hidden_volume(const char *hidden_volume_password);
         void lock_hidden_volume();
 
+        /**
+         * Sets unencrypted volume read-only.
+         * Works until v0.48 (incl. v0.50), where User PIN was sufficient
+         * Does nothing otherwise.
+         * @param user_pin User PIN
+         */
         void set_unencrypted_read_only(const char *user_pin);
 
+        /**
+         * Sets unencrypted volume read-only.
+         * Works from v0.49 (except v0.50) accepts Admin PIN
+         * Does nothing otherwise.
+         * @param admin_pin Admin PIN
+         */
+        void set_unencrypted_read_only_admin(const char *admin_pin);
+
+        /**
+         * Sets unencrypted volume read-write.
+         * Works until v0.48 (incl. v0.50), where User PIN was sufficient
+         * Does nothing otherwise.
+         * @param user_pin User PIN
+         */
         void set_unencrypted_read_write(const char *user_pin);
+
+        /**
+         * Sets unencrypted volume read-write.
+         * Works from v0.49 (except v0.50) accepts Admin PIN
+         * Does nothing otherwise.
+         * @param admin_pin Admin PIN
+         */
+        void set_unencrypted_read_write_admin(const char *admin_pin);
 
         void export_firmware(const char *admin_pin);
         void enable_firmware_update(const char *firmware_pin);
@@ -170,8 +211,16 @@ char * strndup(const char* str, size_t maxlen);
 
         static shared_ptr <NitrokeyManager> _instance;
         std::shared_ptr<Device> device;
+        std::string current_device_id;
+    public:
+        const string get_current_device_id() const;
 
-      stick10::ReadSlot::ResponsePayload get_OTP_slot_data(const uint8_t slot_number);
+    private:
+        std::unordered_map<std::string, shared_ptr<Device> > connected_devices;
+        std::unordered_map<std::string, shared_ptr<Device> > connected_devices_byID;
+
+
+        stick10::ReadSlot::ResponsePayload get_OTP_slot_data(const uint8_t slot_number);
       bool is_valid_hotp_slot_number(uint8_t slot_number) const;
         bool is_valid_totp_slot_number(uint8_t slot_number) const;
         bool is_valid_password_safe_slot_number(uint8_t slot_number) const;
@@ -202,6 +251,31 @@ char * strndup(const char* str, size_t maxlen);
       void set_loglevel(Loglevel loglevel);
 
       void set_loglevel(int loglevel);
+
+      /**
+       * Sets encrypted volume read-only.
+       * Supported from future versions of Storage.
+       * @param admin_pin Admin PIN
+       */
+      void set_encrypted_volume_read_only(const char *admin_pin);
+
+      /**
+       * Sets encrypted volume read-write.
+       * Supported from future versions of Storage.
+       * @param admin_pin Admin PIN
+       */
+      void set_encrypted_volume_read_write(const char *admin_pin);
+
+      int get_major_firmware_version();
+
+      bool is_smartcard_in_use();
+
+      /**
+       * Function to determine unencrypted volume PIN type
+       * @param minor_firmware_version
+       * @return Returns true, if set unencrypted volume ro/rw pin type is User, false otherwise.
+       */
+      bool set_unencrypted_volume_rorw_pin_type_user();
     };
 }
 

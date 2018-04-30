@@ -21,10 +21,10 @@
 
 #include "NK_C_API.h"
 #include <iostream>
-#include "include/NitrokeyManager.h"
+#include "libnitrokey/NitrokeyManager.h"
 #include <cstring>
-#include "include/LibraryException.h"
-#include "include/cxx_semantics.h"
+#include "libnitrokey/LibraryException.h"
+#include "libnitrokey/cxx_semantics.h"
 
 #ifdef _MSC_VER
 #ifdef _WIN32
@@ -160,6 +160,22 @@ extern "C" {
 		}
 		return 0;
 	}
+
+        NK_C_API int NK_login_enum(NK_device_model device_model) {
+                const char *model_string;
+                switch (device_model) {
+                    case NK_PRO:
+                        model_string = "P";
+                        break;
+                    case NK_STORAGE:
+                        model_string = "S";
+                        break;
+                    default:
+                        /* no such enum value -- return error code */
+                        return 0;
+                }
+                return NK_login(model_string);
+        }
 
 	NK_C_API int NK_logout() {
 		auto m = NitrokeyManager::instance();
@@ -495,17 +511,45 @@ extern "C" {
 		});
 	}
 
-	NK_C_API int NK_set_unencrypted_read_only(const char* user_pin) {
+	NK_C_API int NK_set_unencrypted_read_only(const char *user_pin) {
 		auto m = NitrokeyManager::instance();
 		return get_without_result([&]() {
 			m->set_unencrypted_read_only(user_pin);
 		});
 	}
 
-	NK_C_API int NK_set_unencrypted_read_write(const char* user_pin) {
+	NK_C_API int NK_set_unencrypted_read_write(const char *user_pin) {
 		auto m = NitrokeyManager::instance();
 		return get_without_result([&]() {
 			m->set_unencrypted_read_write(user_pin);
+		});
+	}
+
+	NK_C_API int NK_set_unencrypted_read_only_admin(const char *admin_pin) {
+		auto m = NitrokeyManager::instance();
+		return get_without_result([&]() {
+			m->set_unencrypted_read_only_admin(admin_pin);
+		});
+	}
+
+	NK_C_API int NK_set_unencrypted_read_write_admin(const char *admin_pin) {
+		auto m = NitrokeyManager::instance();
+		return get_without_result([&]() {
+			m->set_unencrypted_read_write_admin(admin_pin);
+		});
+	}
+
+	NK_C_API int NK_set_encrypted_read_only(const char* admin_pin) {
+		auto m = NitrokeyManager::instance();
+		return get_without_result([&]() {
+			m->set_encrypted_volume_read_only(admin_pin);
+		});
+	}
+
+	NK_C_API int NK_set_encrypted_read_write(const char* admin_pin) {
+		auto m = NitrokeyManager::instance();
+		return get_without_result([&]() {
+			m->set_encrypted_volume_read_write(admin_pin);
 		});
 	}
 
@@ -538,6 +582,13 @@ extern "C" {
 		});
 	}
 
+	NK_C_API int NK_enable_firmware_update(const char* update_password){
+		auto m = NitrokeyManager::instance();
+		return get_without_result([&]() {
+			m->enable_firmware_update(update_password);
+		});
+	}
+
 	NK_C_API const char* NK_get_status_storage_as_string() {
 		auto m = NitrokeyManager::instance();
 		return get_with_string_result([&]() {
@@ -562,9 +613,44 @@ extern "C" {
 	NK_C_API int NK_get_major_firmware_version() {
 		auto m = NitrokeyManager::instance();
 		return get_with_result([&]() {
+			return m->get_major_firmware_version();
+		});
+	}
+
+  NK_C_API int NK_get_minor_firmware_version() {
+		auto m = NitrokeyManager::instance();
+		return get_with_result([&]() {
 			return m->get_minor_firmware_version();
 		});
 	}
+
+  NK_C_API int NK_set_unencrypted_volume_rorw_pin_type_user() {
+		auto m = NitrokeyManager::instance();
+		return get_with_result([&]() {
+			return m->set_unencrypted_volume_rorw_pin_type_user() ? 1 : 0;
+		});
+	}
+
+	NK_C_API const char* NK_list_devices_by_cpuID() {
+		auto nm = NitrokeyManager::instance();
+		return get_with_string_result([&]() {
+			auto v = nm->list_devices_by_cpuID();
+			std::string res;
+			for (const auto a : v){
+				res += a+";";
+			}
+			if (res.size()>0) res.pop_back(); // remove last delimiter char
+			return strndup(res.c_str(), 8192); //this buffer size sets limit to over 200 devices ID's
+		});
+	}
+
+	NK_C_API int NK_connect_with_ID(const char* id) {
+		auto m = NitrokeyManager::instance();
+		return get_with_result([&]() {
+			return m->connect_with_ID(id) ? 1 : 0;
+		});
+	}
+
 
 
 #ifdef __cplusplus

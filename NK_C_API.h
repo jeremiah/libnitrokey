@@ -22,6 +22,7 @@
 #ifndef LIBNITROKEY_NK_C_API_H
 #define LIBNITROKEY_NK_C_API_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef _MSC_VER
@@ -33,6 +34,21 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+        /**
+         * The Nitrokey device models supported by the API.
+         */
+        enum NK_device_model {
+            /**
+             * Nitrokey Pro.
+             */
+            NK_PRO,
+            /**
+             * Nitrokey Storage.
+             */
+            NK_STORAGE
+        };
+
 	/**
 	 * Set debug level of messages written on stderr
 	 * @param state state=True - most messages, state=False - only errors level
@@ -51,6 +67,13 @@ extern "C" {
 	 * @return 1 if connected, 0 if wrong model or cannot connect
 	 */
 	NK_C_API int NK_login(const char *device_model);
+
+	/**
+	 * Connect to device of given model. Currently library can be connected only to one device at once.
+	 * @param device_model NK_device_model: NK_PRO: Nitrokey Pro, NK_STORAGE: Nitrokey Storage
+	 * @return 1 if connected, 0 if wrong model or cannot connect
+	 */
+        NK_C_API int NK_login_enum(enum NK_device_model device_model);
 
 	/**
 	 * Connect to first available device, starting checking from Pro 1st to Storage 2nd.
@@ -132,8 +155,8 @@ extern "C" {
 	 * or outside the range to disable this function
 	 * @param capslock similar to numlock but with capslock
 	 * @param scrolllock similar to numlock but with scrolllock
-	 * @param enable_user_password set True to enable OTP PIN protection (request PIN each OTP code request)
-	 * @param delete_user_password set True to disable OTP PIN protection (request PIN each OTP code request)
+	 * @param enable_user_password set True to enable OTP PIN protection (require PIN each OTP code request)
+	 * @param delete_user_password (unused)
 	 * @param admin_temporary_password current admin temporary password
 	 * @return command processing error code
 	 */
@@ -268,6 +291,7 @@ extern "C" {
 	NK_C_API int NK_totp_set_time(uint64_t time);
 
 	NK_C_API int NK_totp_get_time();
+
 	//passwords
 	/**
 	 * Change administrator PIN
@@ -359,10 +383,22 @@ extern "C" {
 
 	/**
 	 * Get device's major firmware version
-	 * @return 7,8 for Pro and major for Storage
+	 * @return major part of the version number (e.g. 0 from 0.48, 0 from 0.7 etc.)
 	 */
 	NK_C_API int NK_get_major_firmware_version();
 
+	/**
+	 * Get device's minor firmware version
+	 * @return minor part of the version number (e.g. 7 from 0.7, 48 from 0.48 etc.)
+	 */
+	NK_C_API int NK_get_minor_firmware_version();
+
+  /**
+   * Function to determine unencrypted volume PIN type
+   * @param minor_firmware_version
+   * @return Returns 1, if set unencrypted volume ro/rw pin type is User, 0 otherwise.
+   */
+	NK_C_API int NK_set_unencrypted_volume_rorw_pin_type_user();
 
 
 	/**
@@ -421,21 +457,71 @@ extern "C" {
 	 * Make unencrypted volume read-only.
 	 * Device hides unencrypted volume for a second therefore make sure
 	 * buffers are flushed before running.
+	 * Does nothing if firmware version is not matched
+	 * Firmware range: Storage v0.50, v0.48 and below
 	 * Storage only
-	 * @param user_pin 20 characters
+	 * @param user_pin 20 characters User PIN
 	 * @return command processing error code
 	 */
-	NK_C_API int NK_set_unencrypted_read_only(const char* user_pin);
+	NK_C_API int NK_set_unencrypted_read_only(const char *user_pin);
 
 	/**
 	 * Make unencrypted volume read-write.
 	 * Device hides unencrypted volume for a second therefore make sure
 	 * buffers are flushed before running.
+	 * Does nothing if firmware version is not matched
+	 * Firmware range: Storage v0.50, v0.48 and below
 	 * Storage only
-	 * @param user_pin 20 characters
+	 * @param user_pin 20 characters User PIN
 	 * @return command processing error code
 	 */
-	NK_C_API int NK_set_unencrypted_read_write(const char* user_pin);
+	NK_C_API int NK_set_unencrypted_read_write(const char *user_pin);
+
+	/**
+	 * Make unencrypted volume read-only.
+	 * Device hides unencrypted volume for a second therefore make sure
+	 * buffers are flushed before running.
+	 * Does nothing if firmware version is not matched
+	 * Firmware range: Storage v0.49, v0.51+
+	 * Storage only
+	 * @param admin_pin 20 characters Admin PIN
+	 * @return command processing error code
+	 */
+	NK_C_API int NK_set_unencrypted_read_only_admin(const char* admin_pin);
+
+	/**
+	 * Make unencrypted volume read-write.
+	 * Device hides unencrypted volume for a second therefore make sure
+	 * buffers are flushed before running.
+	 * Does nothing if firmware version is not matched
+	 * Firmware range: Storage v0.49, v0.51+
+	 * Storage only
+	 * @param admin_pin 20 characters Admin PIN
+	 * @return command processing error code
+	 */
+	NK_C_API int NK_set_unencrypted_read_write_admin(const char* admin_pin);
+
+	/**
+	 * Make encrypted volume read-only.
+	 * Device hides encrypted volume for a second therefore make sure
+	 * buffers are flushed before running.
+	 * Firmware range: v0.49 only, future (see firmware release notes)
+	 * Storage only
+	 * @param admin_pin 20 characters
+	 * @return command processing error code
+	 */
+	NK_C_API int NK_set_encrypted_read_only(const char* admin_pin);
+
+	/**
+	 * Make encrypted volume read-write.
+	 * Device hides encrypted volume for a second therefore make sure
+	 * buffers are flushed before running.
+	 * Firmware range: v0.49 only, future (see firmware release notes)
+	 * Storage only
+	 * @param admin_pin 20 characters
+	 * @return command processing error code
+	 */
+	NK_C_API int NK_set_encrypted_read_write(const char* admin_pin);
 
 	/**
 	 * Exports device's firmware to unencrypted volume.
@@ -475,6 +561,21 @@ extern "C" {
 		const char* new_update_password);
 
 	/**
+	 * Enter update mode. Needs update password.
+	 * When device is in update mode it no longer accepts any HID commands until
+	 * firmware is launched (regardless of being updated or not).
+	 * Smartcard (through CCID interface) and its all volumes are not visible as well.
+	 * Its VID and PID are changed to factory-default (03eb:2ff1 Atmel Corp.)
+	 * to be detected by flashing software. Result of this command can be reversed
+	 * by using 'launch' command.
+	 * For dfu-programmer it would be: 'dfu-programmer at32uc3a3256s launch'.
+	 * Storage only
+	 * @param update_password 20 characters
+	 * @return command processing error code
+	 */
+	NK_C_API int NK_enable_firmware_update(const char* update_password);
+
+	/**
 	 * Get Storage stick status as string.
 	 * Storage only
 	 * @return string with devices attributes
@@ -495,6 +596,36 @@ extern "C" {
 	 * @return int in range 0-100 or -1 if device is not busy
 	 */
 	NK_C_API int NK_get_progress_bar_value();
+
+/**
+ * Returns a list of connected devices' id's, delimited by ';' character. Empty string is returned on no device found.
+ * Each ID could consist of:
+ * 1. SC_id:SD_id_p_path (about 40 bytes)
+ * 2. path (about 10 bytes)
+ * where 'path' is USB path (bus:num), 'SC_id' is smartcard ID, 'SD_id' is storage card ID and
+ * '_p_' and ':' are field delimiters.
+ * Case 2 (USB path only) is used, when the device cannot be asked about its status data (e.g. during a long operation,
+ * like clearing SD card.
+ * Internally connects to all available devices and creates a map between ids and connection objects.
+ * Side effects: changes active device to last detected Storage device.
+ * Storage only
+ * @example Example of returned data: '00005d19:dacc2cb4_p_0001:0010:02;000037c7:4cf12445_p_0001:000f:02;0001:000c:02'
+ * @return string delimited id's of connected devices
+ */
+	NK_C_API const char* NK_list_devices_by_cpuID();
+
+
+/**
+ * Connects to the device with given ID. ID's list could be created with NK_list_devices_by_cpuID.
+ * Requires calling to NK_list_devices_by_cpuID first. Connecting to arbitrary ID/USB path is not handled.
+ * On connection requests status from device and disconnects it / removes from map on connection failure.
+ * Storage only
+ * @param id Target device ID (example: '00005d19:dacc2cb4_p_0001:0010:02')
+ * @return 1 on successful connection, 0 otherwise
+ */
+	NK_C_API int NK_connect_with_ID(const char* id);
+
+
 
 #ifdef __cplusplus
 }

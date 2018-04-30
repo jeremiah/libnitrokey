@@ -36,7 +36,8 @@ using namespace nitrokey::misc;
 
 void hexStringToByte(uint8_t data[], const char* hexString){
   REQUIRE(strlen(hexString)%2==0);
-    char buf[2];
+    char buf[3];
+    buf[2] = '\0';
     for(int i=0; i<strlen(hexString); i++){
         buf[i%2] = hexString[i];
         if (i%2==1){
@@ -50,7 +51,7 @@ TEST_CASE("test secret", "[functions]") {
     slot_secret[20] = 0;
     const char* secretHex = "3132333435363738393031323334353637383930";
     hexStringToByte(slot_secret, secretHex);
-    CAPTURE(slot_secret);
+    INFO("Secret: " << slot_secret);
     REQUIRE(strcmp("12345678901234567890",reinterpret_cast<char *>(slot_secret) ) == 0 );
 }
 

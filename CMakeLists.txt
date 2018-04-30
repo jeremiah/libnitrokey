@@ -21,7 +21,7 @@ IF (UNIX)
     ENDIF()
 ENDIF()
 
-project(libnitrokey LANGUAGES C CXX VERSION 3.2.0)
+project(libnitrokey LANGUAGES C CXX VERSION 3.3.0)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -42,23 +42,23 @@ ENDIF()
 MESSAGE("${PROJECT_NAME}: Build type: ${CMAKE_BUILD_TYPE}")
 
 include_directories(hidapi)
-include_directories(include)
+include_directories(libnitrokey)
 set(SOURCE_FILES
-    include/command.h
-    include/command_id.h
-    include/cxx_semantics.h
-    include/device.h
-    include/device_proto.h
-    include/dissect.h
-    include/log.h
-    include/misc.h
-    include/NitrokeyManager.h
-    include/stick10_commands.h
-    include/stick20_commands.h
-    include/CommandFailedException.h
-    include/LibraryException.h
-    include/LongOperationInProgressException.h
-    include/stick10_commands_0.8.h
+    libnitrokey/command.h
+    libnitrokey/command_id.h
+    libnitrokey/cxx_semantics.h
+    libnitrokey/device.h
+    libnitrokey/device_proto.h
+    libnitrokey/dissect.h
+    libnitrokey/log.h
+    libnitrokey/misc.h
+    libnitrokey/NitrokeyManager.h
+    libnitrokey/stick10_commands.h
+    libnitrokey/stick20_commands.h
+    libnitrokey/CommandFailedException.h
+    libnitrokey/LibraryException.h
+    libnitrokey/LongOperationInProgressException.h
+    libnitrokey/stick10_commands_0.8.h
     command_id.cc
     device.cc
     log.cc
@@ -115,9 +115,30 @@ IF (LOG_VOLATILE_DATA)
 ENDIF()
 
 
-file(GLOB LIB_INCLUDES "include/*.h" "NK_C_API.h")
+file(GLOB LIB_INCLUDES "libnitrokey/*.h" "NK_C_API.h")
 install (FILES ${LIB_INCLUDES} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${PROJECT_NAME})
 install (TARGETS nitrokey DESTINATION ${CMAKE_INSTALL_LIBDIR})
+
+IF(NOT WIN32)
+    # Install Nitrokey udev rules
+    IF(NOT DEFINED CMAKE_INSTALL_UDEVRULESDIR)
+        set(PKG_GET_UDEV_DIR ${PKG_CONFIG_EXECUTABLE} --variable=udevdir udev)
+        execute_process(COMMAND ${PKG_GET_UDEV_DIR} RESULT_VARIABLE ERR OUTPUT_VARIABLE CMAKE_INSTALL_UDEVRULESDIR OUTPUT_STRIP_TRAILING_WHITESPACE)
+        IF(${ERR})
+            set(CMAKE_INSTALL_UDEVRULESDIR "lib/udev/rules.d")
+        ELSE()
+            set(CMAKE_INSTALL_UDEVRULESDIR "${CMAKE_INSTALL_UDEVRULESDIR}/rules.d")
+        ENDIF()
+        string(REGEX REPLACE "^/" "" CMAKE_INSTALL_UDEVRULESDIR "${CMAKE_INSTALL_UDEVRULESDIR}")
+        string(REGEX REPLACE "^usr/" "" CMAKE_INSTALL_UDEVRULESDIR "${CMAKE_INSTALL_UDEVRULESDIR}") # usual prefix is usr/local
+        message(STATUS "Setting udev rules dir to ${CMAKE_INSTALL_UDEVRULESDIR}")
+    ENDIF()
+
+    install(FILES
+            ${CMAKE_SOURCE_DIR}/data/41-nitrokey.rules
+            DESTINATION ${CMAKE_INSTALL_UDEVRULESDIR}
+    )
+ENDIF()
 
 # configure and install pkg-config file
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/libnitrokey.pc.in ${CMAKE_CURRENT_BINARY_DIR}/libnitrokey-1.pc @ONLY)
@@ -127,7 +148,19 @@ OPTION(COMPILE_TESTS "Compile tests" FALSE)
 OPTION(COMPILE_OFFLINE_TESTS "Compile offline tests" FALSE)
 
 IF(COMPILE_OFFLINE_TESTS OR COMPILE_TESTS)
-    include_directories(unittest/Catch/include)
+    find_package(PkgConfig)
+    IF(PKG_CONFIG_FOUND)
+        pkg_check_modules(CATCH2 catch)
+    ENDIF()
+
+    if (CATCH2_FOUND)
+        message(STATUS "Found system Catch2, not using bundled version")
+        add_compile_options(${CATCH2_CFLAGS})
+    ELSE()
+        message(STATUS "Did NOT find system Catch2, instead using bundled version")
+        include_directories(unittest/Catch/single_include)
+    ENDIF()
+
     add_library(catch STATIC unittest/catch_main.cpp )
 ENDIF()
 
@@ -159,6 +192,9 @@ IF (COMPILE_TESTS)
 
     add_executable (test_issues unittest/test_issues.cc)
     target_link_libraries (test_issues ${EXTRA_LIBS} nitrokey catch)
+
+    add_executable (test_multiple_devices unittest/test_multiple_devices.cc)
+    target_link_libraries (test_multiple_devices ${EXTRA_LIBS} nitrokey catch)
 
 ENDIF()
 
