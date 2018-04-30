@@ -1,9 +1,10 @@
-libnitrokey (3.2-2) UNRELEASED; urgency=medium
+libnitrokey (3.3-1) UNRELEASED; urgency=medium
 
   * Add git repository for packaging:
     - Vcs-* in debian/control
+  * New upstream release
 
- -- Scott Kitterman <scott@kitterman.com>  Sun, 29 Apr 2018 23:45:32 -0400
+ -- Scott Kitterman <scott@kitterman.com>  Sun, 29 Apr 2018 23:53:33 -0400
 
 libnitrokey (3.2-1) unstable; urgency=medium
 
