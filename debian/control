@@ -33,6 +33,7 @@ Description: library to communicate with Nitrokey stick devices
 Package: libnitrokey-common
 Architecture: all
 Replaces: nitrokey-app (<< 1.3~)
+Depends: ${misc:Depends}
 Recommends: libnitrokey3
 Description: architecture independent files for libnitrokey
  library to communicate with Nitrokey Pro and Storage devices in a clean and
