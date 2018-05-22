@@ -8,8 +8,9 @@ libnitrokey (3.3-2) unstable; urgency=medium
   * Upload to unstable
   * Add misc:Depends for libnitrokey-common
   * Add Multi-Arch: allowed for libnitrokey-common
+  * Update libnitrokey3.symbols from build logs
 
- -- Scott Kitterman <scott@kitterman.com>  Mon, 21 May 2018 16:26:40 -0400
+ -- Scott Kitterman <scott@kitterman.com>  Tue, 22 May 2018 00:44:38 -0400
 
 libnitrokey (3.3-1) experimental; urgency=medium
 
