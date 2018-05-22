@@ -1,10 +1,11 @@
-libnitrokey (3.3-2) UNRELEASED; urgency=medium
+libnitrokey (3.3-2) unstable; urgency=medium
 
   [ Jan Luca Naumann ]
   * Fix installation path of udev rule.
     - install to /lib/udev/rules.d 
 
   [ Scott Kitterman ]
+  * Upload to unstable
   * Add misc:Depends for libnitrokey-common
   * Add Multi-Arch: allowed for libnitrokey-common
 
