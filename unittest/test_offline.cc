@@ -22,6 +22,8 @@
 #include "catch.hpp"
 #include <NitrokeyManager.h>
 #include <memory>
+#include <string>
+#include <regex>
 #include "../NK_C_API.h"
 
 using namespace nitrokey::proto;
@@ -113,7 +115,7 @@ TEST_CASE("Test helper function - hex_string_to_byte", "[fast]") {
   REQUIRE_NOTHROW(v = hex_string_to_byte("00112233445566"));
   const uint8_t test_data[] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
   REQUIRE(v.size() == sizeof(test_data));
-  for (int i = 0; i < v.size(); ++i) {
+  for (size_t i = 0; i < v.size(); ++i) {
     INFO("Position i: " << i);
     REQUIRE(v[i] == test_data[i]);
   }
@@ -159,4 +161,47 @@ TEST_CASE("Test device commands ids", "[fast]") {
 
   REQUIRE(STICK20_CMD_CHANGE_UPDATE_PIN == static_cast<uint8_t>(CommandID::CHANGE_UPDATE_PIN));
 
+}
+
+#include "version.h"
+TEST_CASE("Test version getter", "[fast]") {
+  REQUIRE(nitrokey::get_major_library_version() >= 3u);
+  REQUIRE(nitrokey::get_minor_library_version() >= 3u);
+  const char *library_version = nitrokey::get_library_version();
+  REQUIRE(library_version != nullptr);
+
+  // The library version has to match the pattern returned by git describe:
+  // v<major>.<minor> or v<major>.<minor>-<n>-g<hash>, where <n> is the number
+  // of commits since the last tag, and <hash> is the hash of the current
+  // commit.  (This assumes that all tags have the name v<major>.<minor>.)
+  std::string s = library_version;
+  std::string version("v[0-9]+\\.[0-9]+");
+  std::string git_suffix("-[0-9]+-g[0-9a-z]+");
+  std::regex pattern(version + "(" + git_suffix + "|)");
+  REQUIRE(std::regex_match(s, pattern));
+}
+
+TEST_CASE("Connect should not return true after the second attempt", "[fast]") {
+  int result = 0;
+
+  result = NK_login("S");
+  REQUIRE(result == 0);
+
+  result = NK_login_auto();
+  REQUIRE(result == 0);
+
+  result = NK_logout();
+  REQUIRE(result == 0);
+
+  result = NK_logout();
+  REQUIRE(result == 0);
+
+  result = NK_login("P");
+  REQUIRE(result == 0);
+
+  result = NK_login_auto();
+  REQUIRE(result == 0);
+
+  result = NK_logout();
+  REQUIRE(result == 0);
 }

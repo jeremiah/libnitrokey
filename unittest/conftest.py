@@ -44,7 +44,6 @@ def C(request=None):
     cnt = 0
     a = iter(declarations)
     for declaration in a:
-        if 'NK_device_model' in declaration: continue
         if declaration.strip().startswith('NK_C_API'):
             declaration = declaration.replace('NK_C_API', '').strip()
             while ';' not in declaration:
@@ -86,7 +85,7 @@ def C(request=None):
     assert nk_login != 0  # returns 0 if not connected or wrong model or 1 when connected
     global device_type
     firmware_version = C.NK_get_minor_firmware_version()
-    model = 'P' if firmware_version in [7,8] else 'S'
+    model = 'P' if firmware_version < 20 else 'S'
     device_type = (model, firmware_version)
     print('Connected device: {} {}'.format(model, firmware_version))
 
