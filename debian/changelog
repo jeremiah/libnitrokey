@@ -2,6 +2,7 @@ libnitrokey (3.4.1-1) UNRELEASED; urgency=medium
 
   * New upstream release
     - Refresh patch
+    - Update symbols file from build log (Closes: #915462)
   * Bump standards-version to 4.2.1 without further change
   * Fix Multi-Arch specification for libnitrokey-common
 
