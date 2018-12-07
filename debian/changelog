@@ -1,4 +1,4 @@
-libnitrokey (3.4.1-1) UNRELEASED; urgency=medium
+libnitrokey (3.4.1-1) experimental; urgency=medium
 
   * New upstream release
     - Refresh patch
