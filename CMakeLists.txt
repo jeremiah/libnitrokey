@@ -21,7 +21,7 @@ IF (UNIX)
     ENDIF()
 ENDIF()
 
-project(libnitrokey LANGUAGES C CXX VERSION 3.3.0)
+project(libnitrokey LANGUAGES C CXX VERSION 3.4.1)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -66,7 +66,9 @@ set(SOURCE_FILES
     NitrokeyManager.cc
     NK_C_API.h
     NK_C_API.cc
-        DeviceCommunicationExceptions.cpp)
+    DeviceCommunicationExceptions.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/version.cc
+    )
 
 set(BUILD_SHARED_LIBS ON CACHE BOOL "Build all libraries as shared")
 add_library(nitrokey ${SOURCE_FILES})
@@ -95,7 +97,7 @@ set_target_properties(nitrokey PROPERTIES
 
 OPTION(ERROR_ON_WARNING "Stop compilation on warning found (not supported for MSVC)" OFF)
 if (NOT MSVC)
-    set(COMPILE_FLAGS "-Wall -Wno-unused-function -Wcast-qual -Woverloaded-virtual")
+    set(COMPILE_FLAGS "-Wall -Wno-unused-function -Wcast-qual -Woverloaded-virtual -Wsign-compare -Wformat -Wformat-security")
     IF(NOT APPLE)
         if (ERROR_ON_WARNING)
             set(COMPILE_FLAGS "${COMPILE_FLAGS} -Werror")
@@ -113,6 +115,25 @@ OPTION(LOG_VOLATILE_DATA "Log volatile data (debug)" OFF)
 IF (LOG_VOLATILE_DATA)
     SET_TARGET_PROPERTIES(nitrokey PROPERTIES COMPILE_DEFINITIONS "LOG_VOLATILE_DATA")
 ENDIF()
+
+
+OPTION(ADD_GIT_INFO "Add information about source code version from Git repository" TRUE)
+# generate version.h
+IF(ADD_GIT_INFO)
+execute_process(
+	COMMAND git describe --always --abbrev=4 HEAD
+	WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+	RESULT_VARIABLE PROJECT_VERSION_GIT_RETURN_CODE
+	OUTPUT_VARIABLE PROJECT_VERSION_GIT
+	OUTPUT_STRIP_TRAILING_WHITESPACE
+	ERROR_QUIET
+)
+ENDIF()
+IF((NOT ${ADD_GIT_INFO}) OR (${PROJECT_VERSION_GIT_RETURN_CODE}))
+	SET(PROJECT_VERSION_GIT "unknown")
+	MESSAGE(STATUS "Setting Git library version to: " ${PROJECT_VERSION_GIT} )
+ENDIF()
+configure_file("version.cc.in" "version.cc" @ONLY)
 
 
 file(GLOB LIB_INCLUDES "libnitrokey/*.h" "NK_C_API.h")
@@ -135,7 +156,7 @@ IF(NOT WIN32)
     ENDIF()
 
     install(FILES
-            ${CMAKE_SOURCE_DIR}/data/41-nitrokey.rules
+            ${CMAKE_CURRENT_SOURCE_DIR}/data/41-nitrokey.rules
             DESTINATION ${CMAKE_INSTALL_UDEVRULESDIR}
     )
 ENDIF()
@@ -167,34 +188,37 @@ ENDIF()
 IF(COMPILE_OFFLINE_TESTS)
     add_executable (test_offline unittest/test_offline.cc)
     target_link_libraries (test_offline ${EXTRA_LIBS} nitrokey catch)
+    SET_TARGET_PROPERTIES(test_offline PROPERTIES COMPILE_FLAGS ${COMPILE_FLAGS} )
     #run with 'make test' or 'ctest'
     include (CTest)
     add_test (runs test_offline)
+
+    add_executable(test_minimal unittest/test_minimal.c)
+    target_link_libraries(test_minimal ${EXTRA_LIBS} nitrokey)
+    add_test(minimal test_minimal)
 ENDIF()
 
 IF (COMPILE_TESTS)
-    #needs connected PRO device for success
-    #warning: it may delete data on the device
-    add_executable (test_C_API unittest/test_C_API.cpp)
-    target_link_libraries (test_C_API ${EXTRA_LIBS} nitrokey catch)
+    #needs connected Pro/Storage devices for success
+    #WARNING: it may delete data on the device
 
-    add_executable (test2 unittest/test2.cc)
-    target_link_libraries (test2 ${EXTRA_LIBS} nitrokey catch)
+        SET(TESTS
+                unittest/test_C_API.cpp
+                unittest/test2.cc
+                unittest/test3.cc
+                unittest/test_HOTP.cc
+                unittest/test1.cc
+                unittest/test_issues.cc
+                unittest/test_multiple_devices.cc
+                unittest/test_strdup.cpp
+        )
 
-    add_executable (test3 unittest/test3.cc)
-    target_link_libraries (test3 ${EXTRA_LIBS} nitrokey catch)
-
-    add_executable (test_HOTP unittest/test_HOTP.cc)
-    target_link_libraries (test_HOTP ${EXTRA_LIBS} nitrokey catch)
-
-    add_executable (test1 unittest/test.cc)
-    target_link_libraries (test1 ${EXTRA_LIBS} nitrokey catch)
-
-    add_executable (test_issues unittest/test_issues.cc)
-    target_link_libraries (test_issues ${EXTRA_LIBS} nitrokey catch)
-
-    add_executable (test_multiple_devices unittest/test_multiple_devices.cc)
-    target_link_libraries (test_multiple_devices ${EXTRA_LIBS} nitrokey catch)
+    foreach(testsourcefile ${TESTS} )
+        get_filename_component(testname ${testsourcefile} NAME_WE )
+        add_executable(${testname} ${testsourcefile} )
+        target_link_libraries(${testname} ${EXTRA_LIBS} nitrokey catch )
+        SET_TARGET_PROPERTIES(${testname} PROPERTIES COMPILE_FLAGS ${COMPILE_FLAGS} )
+    endforeach(testsourcefile)
 
 ENDIF()
 

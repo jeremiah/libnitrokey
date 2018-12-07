@@ -74,7 +74,7 @@ TEST_CASE("multiple devices with ID", "[BASIC]") {
   int t;
 
   string = strndup(s, 4096);
-  free ( (void*) s);
+  free (static_cast<void*>(const_cast<char*>(s)));
 
   while ((token = strsep(&string, ";")) != nullptr){
     if (strnlen(token, 4096) < 3) continue;
@@ -84,4 +84,18 @@ TEST_CASE("multiple devices with ID", "[BASIC]") {
   }
 
   free (string);
+}
+
+TEST_CASE("Get device model", "[BASIC]") {
+    NK_logout();
+    NK_device_model model = NK_get_device_model();
+    REQUIRE(model == NK_device_model::NK_DISCONNECTED);
+
+    auto success = NK_login_auto() == 1;
+    REQUIRE(success);
+    model = NK_get_device_model();
+    REQUIRE(model != NK_device_model::NK_DISCONNECTED);
+
+    REQUIRE((model == NK_PRO || model == NK_STORAGE));
+    NK_logout();
 }
