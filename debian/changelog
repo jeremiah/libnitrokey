@@ -1,3 +1,10 @@
+libnitrokey (3.4.1-1) UNRELEASED; urgency=medium
+
+  * New upstream release
+    - Refresh patch
+
+ -- Scott Kitterman <scott@kitterman.com>  Fri, 07 Dec 2018 01:21:13 -0500
+
 libnitrokey (3.3-2) unstable; urgency=medium
 
   [ Jan Luca Naumann ]

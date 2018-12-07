@@ -1,3 +1,6 @@
+From: Jan Luca Naumann <j.naumann@fu-berlin.de>
+Date: Fri, 7 Dec 2018 01:17:01 -0500
+Subject: 0001-fix-installation-paths
 Description: Adjust installation paths in CMakeLists.txt
  Adjust the installation paths in CMakeLists.txt to match the
  paths used in Debian:
@@ -6,10 +9,14 @@ Author: Jan Luca Naumann <j.naumann@fu-berlin.de>
 Forwarded: not-needed
 Last-Update: 2018-05-13
 ---
-This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+ CMakeLists.txt | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 32f75a3..dd19a11 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -129,8 +129,6 @@
+@@ -150,8 +150,6 @@ IF(NOT WIN32)
          ELSE()
              set(CMAKE_INSTALL_UDEVRULESDIR "${CMAKE_INSTALL_UDEVRULESDIR}/rules.d")
          ENDIF()
