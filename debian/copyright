@@ -6,11 +6,7 @@ Files: *
 Copyright: 2015-2018 Nitrokey UG
 License: LGPL-3.0+
 
-Files: include/inttypes.h
-Copyright: 2004,2005,2007 Joerg Wunsch Copyright (c) 2005, Carlos Lamas All rights reserved.
-License: BSD-3-clause
-
-Files: include/hidapi/hidapi.h
+Files: libnitrokey/hidapi/hidapi.h
 Copyright: 2009, Alan Ott, Signal 11 Software
 License: Hidapi-BSD
 
