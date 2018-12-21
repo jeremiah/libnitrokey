@@ -1,0 +1,3 @@
+# Needs to live in nitrokey-app (See #916911)
+libnitrokey-common: appstream-metadata-missing-modalias-provide lib/udev/rules.d/41-nitrokey.rules
+

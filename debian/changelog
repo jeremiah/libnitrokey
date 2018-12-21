@@ -1,8 +1,10 @@
 libnitrokey (3.4.1-4) UNRELEASED; urgency=medium
 
   * Update debian/copyright
+  * Add lintian override for appstream-metadata-missing-modalias-provide
+    because the correction is best done in nitrokey-app
 
- -- Scott Kitterman <scott@kitterman.com>  Fri, 21 Dec 2018 11:12:13 -0500
+ -- Scott Kitterman <scott@kitterman.com>  Fri, 21 Dec 2018 11:48:08 -0500
 
 libnitrokey (3.4.1-3) unstable; urgency=medium
 
