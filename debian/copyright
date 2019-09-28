@@ -3,7 +3,7 @@ Upstream-Name: libnitrokey
 Source: https://github.com/Nitrokey/libnitrokey
 
 Files: *
-Copyright: 2015-2018 Nitrokey UG
+Copyright: 2015-2019 Nitrokey UG
 License: LGPL-3.0+
 
 Files: libnitrokey/hidapi/hidapi.h
