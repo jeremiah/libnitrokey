@@ -1,5 +1,5 @@
 """
-Copyright (c) 2015-2018 Nitrokey UG
+Copyright (c) 2015-2019 Nitrokey UG
 
 This file is part of libnitrokey.
 
@@ -22,9 +22,10 @@ SPDX-License-Identifier: LGPL-3.0
 import pytest
 
 from conftest import skip_if_device_version_lower_than
-from constants import DefaultPasswords, DeviceErrorCode, RFC_SECRET, bb, bbRFC_SECRET
-from misc import ffi, gs, wait, cast_pointer_to_tuple
-from misc import is_pro_rtm_07, is_pro_rtm_08, is_storage
+from constants import DefaultPasswords, DeviceErrorCode, RFC_SECRET, bb, bbRFC_SECRET, LibraryErrors, HOTP_slot_count, \
+    TOTP_slot_count
+from misc import ffi, gs, wait, cast_pointer_to_tuple, has_binary_counter
+from misc import is_storage
 
 @pytest.mark.lock_device
 @pytest.mark.PWS
@@ -192,7 +193,8 @@ def test_enable_password_safe_after_factory_reset(C):
         assert C.NK_clear_new_sd_card_warning(DefaultPasswords.ADMIN) == DeviceErrorCode.STATUS_OK
     enable_password_safe_result = C.NK_enable_password_safe(DefaultPasswords.USER)
     assert enable_password_safe_result == DeviceErrorCode.STATUS_AES_DEC_FAILED \
-           or is_storage(C) and enable_password_safe_result == DeviceErrorCode.WRONG_PASSWORD
+           or is_storage(C) and enable_password_safe_result in \
+           [DeviceErrorCode.WRONG_PASSWORD, DeviceErrorCode.STATUS_UNKNOWN_ERROR]  # UNKNOWN_ERROR since v0.51
     assert C.NK_build_aes_key(DefaultPasswords.ADMIN) == DeviceErrorCode.STATUS_OK
     assert C.NK_enable_password_safe(DefaultPasswords.USER) == DeviceErrorCode.STATUS_OK
 
@@ -408,7 +410,7 @@ def test_HOTP_counters(C):
 INT32_MAX = 2 ** 31 - 1
 @pytest.mark.otp
 def test_HOTP_64bit_counter(C):
-    if is_storage(C):
+    if not has_binary_counter(C):
         pytest.xfail('bug in NK Storage HOTP firmware - counter is set with a 8 digits string, '
                      'however int32max takes 10 digits to be written')
     oath = pytest.importorskip("oath")
@@ -430,27 +432,46 @@ def test_HOTP_64bit_counter(C):
         lib_res += (t, lib_at(t))
     assert dev_res == lib_res
 
+def helper_set_HOTP_test_slot(C, slot_number):
+    assert C.NK_first_authenticate(DefaultPasswords.ADMIN, DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
+    assert C.NK_write_hotp_slot(slot_number, b'python_test', bbRFC_SECRET, 0, False, False, True, b'', DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
 
-@pytest.mark.otp
-def test_TOTP_64bit_time(C):
-    if is_storage(C):
-        pytest.xfail('bug in NK Storage TOTP firmware')
-    oath = pytest.importorskip("oath")
-    T = 1
-    lib_at = lambda t: bb(oath.totp(RFC_SECRET, t=t))
+
+def helper_set_TOTP_test_slot(C, slot_number):
     PIN_protection = False
-    slot_number = 1
     assert C.NK_first_authenticate(DefaultPasswords.ADMIN, DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
     assert C.NK_write_config(255, 255, 255, PIN_protection, not PIN_protection,
                              DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
     assert C.NK_first_authenticate(DefaultPasswords.ADMIN, DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
     assert C.NK_write_totp_slot(slot_number, b'python_test', bbRFC_SECRET, 30, False, False, False, b'',
                                 DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
+
+
+def helper_set_time_on_device(C, t):
+    assert C.NK_first_authenticate(DefaultPasswords.ADMIN, DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
+    assert C.NK_totp_set_time(t) == DeviceErrorCode.STATUS_OK
+
+
+@pytest.mark.otp
+@pytest.mark.parametrize("t_values",[
+        range(INT32_MAX - 5, INT32_MAX + 5, 1),
+        [2**31, 2**32, 2**33, 2**34, 2**40, 2**50, 2**60],
+        pytest.param([2**61-1, 2**62-1, 2**63-1, 2**64-1], marks=pytest.mark.xfail),
+    ])
+def test_TOTP_64bit_time(C, t_values):
+    if not has_binary_counter(C):
+        pytest.xfail('bug in NK Storage TOTP firmware')
+    oath = pytest.importorskip("oath")
+    T = 1
+    slot_number = 1
+    lib_at = lambda t: bb(oath.totp(RFC_SECRET, t=t))
+
+    helper_set_TOTP_test_slot(C, slot_number)
+
     dev_res = []
     lib_res = []
-    for t in range(INT32_MAX - 5, INT32_MAX + 5, 1):
-        assert C.NK_first_authenticate(DefaultPasswords.ADMIN, DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
-        assert C.NK_totp_set_time(t) == DeviceErrorCode.STATUS_OK
+    for t in t_values:
+        helper_set_time_on_device(C, t)
         code_device = gs((C.NK_get_totp_code(slot_number, T, 0, 30)))
         dev_res += (t, code_device)
         lib_res += (t, lib_at(t))
@@ -514,11 +535,11 @@ def test_get_slot_names(C):
     assert C.NK_first_authenticate(DefaultPasswords.ADMIN, DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
     assert C.NK_erase_hotp_slot(0, DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
 
-    for i in range(15):
+    for i in range(TOTP_slot_count):
         name = ffi.string(C.NK_get_totp_slot_name(i))
         if name == '':
             assert C.NK_get_last_command_status() == DeviceErrorCode.NOT_PROGRAMMED
-    for i in range(3):
+    for i in range(HOTP_slot_count):
         name = ffi.string(C.NK_get_hotp_slot_name(i))
         if name == '':
             assert C.NK_get_last_command_status() == DeviceErrorCode.NOT_PROGRAMMED
@@ -528,12 +549,12 @@ def test_get_slot_names(C):
 def test_get_OTP_codes(C):
     assert C.NK_first_authenticate(DefaultPasswords.ADMIN, DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
     assert C.NK_write_config(255, 255, 255, False, True, DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
-    for i in range(15):
+    for i in range(TOTP_slot_count):
         code = gs(C.NK_get_totp_code(i, 0, 0, 0))
         if code == b'':
             assert C.NK_get_last_command_status() == DeviceErrorCode.NOT_PROGRAMMED
 
-    for i in range(3):
+    for i in range(HOTP_slot_count):
         code = gs(C.NK_get_hotp_code(i))
         if code == b'':
             assert C.NK_get_last_command_status() == DeviceErrorCode.NOT_PROGRAMMED
@@ -575,6 +596,20 @@ def test_get_code_user_authorize(C):
     code = gs(C.NK_get_totp_code(0, 0, 0, 0))
     assert code != b''
     assert C.NK_get_last_command_status() == DeviceErrorCode.STATUS_OK
+
+
+def helper_get_TOTP_code(C,i):
+    code = gs(C.NK_get_totp_code(i, 0, 0, 30))
+    assert C.NK_get_last_command_status() == DeviceErrorCode.STATUS_OK
+    assert code != b''
+    return code
+
+
+def helper_get_HOTP_code(C,i):
+    code = gs(C.NK_get_hotp_code(i))
+    assert C.NK_get_last_command_status() == DeviceErrorCode.STATUS_OK
+    assert code != b''
+    return code
 
 
 @pytest.mark.otp
@@ -673,10 +708,22 @@ def test_factory_reset(C):
 
 
 @pytest.mark.status
-def test_get_status(C):
-    status = C.NK_status()
+def test_get_status_as_string(C):
+    status = C.NK_get_status_as_string()
     s = gs(status)
     assert len(s) > 0
+
+
+@pytest.mark.status
+def test_get_status(C):
+    status_st = ffi.new('struct NK_status *')
+    if not status_st:
+        raise Exception("Could not allocate status")
+    err = C.NK_get_status(status_st)
+    assert err == 0
+    assert status_st.firmware_version_major == 0
+    assert status_st.firmware_version_minor != 0
+
 
 @pytest.mark.status
 def test_get_serial_number(C):
@@ -696,7 +743,7 @@ def test_OTP_secret_started_from_null(C, secret):
     skip_if_device_version_lower_than({'S': 43, 'P': 8})
     if len(secret) > 40:
         # feature: 320 bit long secret handling
-        skip_if_device_version_lower_than({'P': 8})
+        skip_if_device_version_lower_than({'P': 8, 'S': 54})
 
     oath = pytest.importorskip("oath")
     lib_at = lambda t: bb(oath.hotp(secret, t, format='dec6'))
@@ -728,8 +775,8 @@ def test_HOTP_slots_read_write_counter(C, counter):
     :param counter:
     """
     if counter >= 1e7:
-        # Storage does not handle counters longer than 7 digits
-        skip_if_device_version_lower_than({'P': 7})
+        # Storage v0.53 and below does not handle counters longer than 7 digits
+        skip_if_device_version_lower_than({'P': 7, 'S': 54})
 
     secret = RFC_SECRET
     oath = pytest.importorskip("oath")
@@ -741,7 +788,7 @@ def test_HOTP_slots_read_write_counter(C, counter):
                              DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
     dev_res = []
     lib_res = []
-    for slot_number in range(3):
+    for slot_number in range(HOTP_slot_count):
         assert C.NK_first_authenticate(DefaultPasswords.ADMIN, DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
         assert C.NK_write_hotp_slot(slot_number, b'HOTP rw' + bytes(slot_number), bb(secret), counter, use_8_digits, False, False, b"",
                                     DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
@@ -770,7 +817,7 @@ def test_TOTP_slots_read_write_at_time_period(C, time, period):
                              DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
     dev_res = []
     lib_res = []
-    for slot_number in range(15):
+    for slot_number in range(TOTP_slot_count):
         assert C.NK_first_authenticate(DefaultPasswords.ADMIN, DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
         assert C.NK_write_totp_slot(slot_number, b'TOTP rw' + bytes(slot_number), bb(secret), period, use_8_digits, False, False, b"",
                                     DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
@@ -791,8 +838,8 @@ def test_TOTP_secrets(C, secret):
     skip_if_device_version_lower_than({'S': 44, 'P': 8})
 
     if len(secret)>20*2: #*2 since secret is in hex
-        # pytest.skip("Secret lengths over 20 bytes are not supported by NK Pro 0.7 and NK Storage")
-        skip_if_device_version_lower_than({'P': 8})
+        # pytest.skip("Secret lengths over 20 bytes are not supported by NK Pro 0.7 and NK Storage v0.53 and older")
+        skip_if_device_version_lower_than({'P': 8, 'S': 54})
     slot_number = 0
     time = 0
     period = 30
@@ -823,7 +870,7 @@ def test_HOTP_secrets(C, secret):
     feature needed: support for 320bit secrets
     """
     if len(secret)>40:
-        skip_if_device_version_lower_than({'P': 8})
+        skip_if_device_version_lower_than({'P': 8, 'S': 54})
 
     slot_number = 0
     counter = 0
@@ -926,3 +973,123 @@ def test_TOTP_codes_from_nitrokeyapp(secret, C):
 def test_get_device_model(C):
     assert C.NK_get_device_model() != 0
     # assert C.NK_get_device_model() != C.NK_DISCONNECTED
+
+
+@pytest.mark.firmware
+def test_bootloader_password_change_pro(C):
+    skip_if_device_version_lower_than({'P': 11})
+    assert C.NK_change_firmware_password_pro(b'zxcasd', b'zxcasd') == DeviceErrorCode.WRONG_PASSWORD
+
+    assert C.NK_change_firmware_password_pro(DefaultPasswords.UPDATE, DefaultPasswords.UPDATE_TEMP) == DeviceErrorCode.STATUS_OK
+    assert C.NK_change_firmware_password_pro(DefaultPasswords.UPDATE_TEMP, DefaultPasswords.UPDATE) == DeviceErrorCode.STATUS_OK
+
+
+@pytest.mark.firmware
+def test_bootloader_run_pro(C):
+    skip_if_device_version_lower_than({'P': 11})
+    assert C.NK_enable_firmware_update_pro(DefaultPasswords.UPDATE_TEMP) == DeviceErrorCode.WRONG_PASSWORD
+    # Not enabled due to lack of side-effect removal at this point
+    # assert C.NK_enable_firmware_update_pro(DefaultPasswords.UPDATE) == DeviceErrorCode.STATUS_OK
+
+
+@pytest.mark.firmware
+def test_bootloader_password_change_pro_too_long(C):
+    skip_if_device_version_lower_than({'P': 11})
+    long_string = b'a' * 100
+    assert C.NK_change_firmware_password_pro(long_string, long_string) == LibraryErrors.TOO_LONG_STRING
+    assert C.NK_change_firmware_password_pro(DefaultPasswords.UPDATE, long_string) == LibraryErrors.TOO_LONG_STRING
+
+
+@pytest.mark.otp
+@pytest.mark.parametrize('counter_mid', [10**3-1, 10**4-1, 10**7-1, 10**8-10, 2**16, 2**31-1, 2**32-1, 2**33, 2**50, 2**60, 2**63])  # 2**64-1
+def test_HOTP_counter_getter(C, counter_mid: int):
+    if len(str(counter_mid)) > 8:
+        skip_if_device_version_lower_than({'S': 54, 'P': 7})
+    assert C.NK_first_authenticate(DefaultPasswords.ADMIN, DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
+    use_pin_protection = False
+    use_8_digits = False
+    assert C.NK_write_config(255, 255, 255, use_pin_protection, not use_pin_protection,
+                             DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
+    read_slot_st = ffi.new('struct ReadSlot_t *')
+    if not read_slot_st:
+        raise Exception("Could not allocate status")
+    slot_number = 1
+    for counter in range(counter_mid-3, counter_mid+3):
+        # assert C.NK_first_authenticate(DefaultPasswords.ADMIN, DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
+        assert C.NK_write_hotp_slot(slot_number, b'python_test', bbRFC_SECRET, counter, use_8_digits, False, False, b'',
+                                    DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
+        assert C.NK_read_HOTP_slot(slot_number, read_slot_st) == DeviceErrorCode.STATUS_OK
+        assert read_slot_st.slot_counter == counter
+
+
+@pytest.mark.otp
+def test_edge_OTP_slots(C):
+    # -> shows TOTP15 is not written
+    # -> assuming HOTP1 is written
+    # (optional) Write slot HOTP1
+    # Write slot TOTP15
+    # Wait
+    # Read slot TOTP15 details
+    # Read HOTP1 details
+    # returns SLOT_NOT_PROGRAMMED
+    # (next nkapp execution)
+    # -> shows HOTP1 is not written
+    # briefly writing TOTP15 clears HOTP1, and vice versa
+
+    read_slot_st = ffi.new('struct ReadSlot_t *')
+    if not read_slot_st:
+        raise Exception("Could not allocate status")
+    use_pin_protection = False
+    use_8_digits = False
+    assert C.NK_first_authenticate(DefaultPasswords.ADMIN, DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
+    assert C.NK_write_config(255, 255, 255, use_pin_protection, not use_pin_protection,
+                             DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
+    counter = 0
+    HOTP_slot_number = 1 -1
+    TOTP_slot_number = TOTP_slot_count -1  # 0 based
+    assert C.NK_write_totp_slot(TOTP_slot_number, b'python_test', bbRFC_SECRET, 30, False, False, False, b'',
+                                DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
+    assert C.NK_write_hotp_slot(HOTP_slot_number, b'python_test', bbRFC_SECRET, counter, use_8_digits, False, False, b'', DefaultPasswords.ADMIN_TEMP) == DeviceErrorCode.STATUS_OK
+    for i in range(5):
+        code_hotp = gs(C.NK_get_hotp_code(HOTP_slot_number))
+        assert code_hotp
+        assert C.NK_get_last_command_status() == DeviceErrorCode.STATUS_OK
+        assert C.NK_read_HOTP_slot(HOTP_slot_number, read_slot_st) == DeviceErrorCode.STATUS_OK
+        assert read_slot_st.slot_counter == (i+1)
+        helper_set_time_on_device(C, 1)
+        code_totp = gs((C.NK_get_totp_code(TOTP_slot_number, 0, 0, 30)))
+        assert code_totp
+        assert C.NK_get_last_command_status() == DeviceErrorCode.STATUS_OK
+
+
+@pytest.mark.otp
+def test_OTP_all_rw(C):
+    """
+    Write all OTP slots and read codes from them two times.
+    All generated codes should be the same, which is checked as well.
+    """
+    for i in range(TOTP_slot_count):
+        helper_set_TOTP_test_slot(C, i)
+    for i in range(HOTP_slot_count):
+        helper_set_HOTP_test_slot(C, i)
+    all_codes = []
+    for i in range(5):
+        this_loop_codes = []
+        code_old = b''
+        helper_set_time_on_device(C, 30*i)
+        for i in range(TOTP_slot_count):
+            code = helper_get_TOTP_code(C, i)
+            if code_old:
+                assert code == code_old
+            code_old = code
+            this_loop_codes.append(('T', i, code))
+        code_old = b''
+        for i in range(HOTP_slot_count):
+            code = helper_get_HOTP_code(C, i)
+            if code_old:
+                assert code == code_old
+            code_old = code
+            this_loop_codes.append(('H', i, code))
+        all_codes.append(this_loop_codes)
+    from pprint import pprint
+    pprint(all_codes)

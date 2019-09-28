@@ -21,7 +21,7 @@ IF (UNIX)
     ENDIF()
 ENDIF()
 
-project(libnitrokey LANGUAGES C CXX VERSION 3.4.1)
+project(libnitrokey LANGUAGES C CXX VERSION 3.5.0)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -130,9 +130,9 @@ execute_process(
 )
 ENDIF()
 IF((NOT ${ADD_GIT_INFO}) OR (${PROJECT_VERSION_GIT_RETURN_CODE}))
-	SET(PROJECT_VERSION_GIT "unknown")
-	MESSAGE(STATUS "Setting Git library version to: " ${PROJECT_VERSION_GIT} )
+	SET(PROJECT_VERSION_GIT "v${PROJECT_VERSION}")
 ENDIF()
+MESSAGE(STATUS "Setting Git library version to: " ${PROJECT_VERSION_GIT} )
 configure_file("version.cc.in" "version.cc" @ONLY)
 
 
@@ -171,7 +171,7 @@ OPTION(COMPILE_OFFLINE_TESTS "Compile offline tests" FALSE)
 IF(COMPILE_OFFLINE_TESTS OR COMPILE_TESTS)
     find_package(PkgConfig)
     IF(PKG_CONFIG_FOUND)
-        pkg_check_modules(CATCH2 catch)
+        pkg_check_modules(CATCH2 catch2)
     ENDIF()
 
     if (CATCH2_FOUND)
@@ -211,6 +211,7 @@ IF (COMPILE_TESTS)
                 unittest/test_issues.cc
                 unittest/test_multiple_devices.cc
                 unittest/test_strdup.cpp
+                unittest/test_safe.cpp
         )
 
     foreach(testsourcefile ${TESTS} )
@@ -232,3 +233,12 @@ set (CPACK_RESOURCE_FILE_LICENSE
         "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
 set (CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 include (CPack)
+
+# Build Doxygen documentation for the C API
+find_package(Doxygen)
+if (DOXYGEN_FOUND)
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile.in ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile @ONLY)
+    add_custom_target(doc ${DOXYGEN_EXECUTABLE} Doxyfile
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        COMMENT "Generating C API documentation with Doxygen" VERBATIM)
+endif(DOXYGEN_FOUND)

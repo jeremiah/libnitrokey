@@ -1,5 +1,5 @@
 """
-Copyright (c) 2015-2018 Nitrokey UG
+Copyright (c) 2015-2019 Nitrokey UG
 
 This file is part of libnitrokey.
 
@@ -24,7 +24,8 @@ import pytest
 
 from conftest import skip_if_device_version_lower_than
 from constants import DefaultPasswords, DeviceErrorCode, bb
-from misc import gs, wait
+from misc import gs, wait, ffi
+
 pprint = pprint.PrettyPrinter(indent=4).pprint
 
 
@@ -352,13 +353,14 @@ def test_change_update_password(C):
     assert C.NK_change_update_password(DefaultPasswords.UPDATE_TEMP, DefaultPasswords.UPDATE) == DeviceErrorCode.STATUS_OK
 
 
-@pytest.mark.skip(reason='no reversing method added yet')
+# @pytest.mark.skip(reason='no reversing method added yet')
 @pytest.mark.update
 def test_enable_firmware_update(C):
     skip_if_device_version_lower_than({'S': 50})
     wrong_password = b'aaaaaaaaaaa'
     assert C.NK_enable_firmware_update(wrong_password) == DeviceErrorCode.WRONG_PASSWORD
-    assert C.NK_enable_firmware_update(DefaultPasswords.UPDATE) == DeviceErrorCode.STATUS_OK
+    # skip actual test - reason: no reversing method added yet
+    # assert C.NK_enable_firmware_update(DefaultPasswords.UPDATE) == DeviceErrorCode.STATUS_OK
 
 
 @pytest.mark.other
@@ -366,3 +368,214 @@ def test_send_startup(C):
     skip_if_device_version_lower_than({'S': 43})
     time_seconds_from_epoch = 0 # FIXME set proper date
     assert C.NK_send_startup(time_seconds_from_epoch) == DeviceErrorCode.STATUS_OK
+
+
+@pytest.mark.other
+def test_struct_multiline_prodtest(C):
+    info_st = ffi.new('struct NK_storage_ProductionTest *')
+    if info_st is None: raise Exception('Invalid value')
+    err = C.NK_get_storage_production_info(info_st)
+    assert err == 0
+    assert info_st.SD_Card_ManufacturingYear_u8 != 0
+    assert info_st.SD_Card_ManufacturingMonth_u8 != 0
+    assert info_st.SD_Card_Size_u8 != 0
+    assert info_st.FirmwareVersion_au8[0] == 0
+    assert info_st.FirmwareVersion_au8[1] >= 50
+
+    info = 'CPU:{CPU},SC:{SC},SD:{SD},' \
+           'SCM:{SCM},SCO:{SCO},DAT:{DAT},Size:{size},Firmware:{fw} - {fwb}'.format(
+        CPU='0x{:08x}'.format(info_st.CPU_CardID_u32),
+        SC='0x{:08x}'.format(info_st.SmartCardID_u32),
+        SD='0x{:08x}'.format(info_st.SD_CardID_u32),
+        SCM='0x{:02x}'.format(info_st.SD_Card_Manufacturer_u8),
+        SCO='0x{:04x}'.format(info_st.SD_Card_OEM_u16),
+        DAT='20{}.{}'.format(info_st.SD_Card_ManufacturingYear_u8, info_st.SD_Card_ManufacturingMonth_u8),
+        size=info_st.SD_Card_Size_u8,
+        fw='{}.{}'.format(info_st.FirmwareVersion_au8[0], info_st.FirmwareVersion_au8[1]),
+        fwb=info_st.FirmwareVersionInternal_u8
+        )
+    print(info)
+
+@pytest.mark.other
+@pytest.mark.firmware
+def test_export_firmware_extended_fedora29(C):
+    """
+    Check, whether the firmware file is exported correctly, and in correct size.
+    Apparently, the auto-remounting side effect of the v0.46 change, is disturbing the export process.
+    Unmounting the UV just before the export gives the device 20/20 success rate.
+    Test case for issue https://github.com/Nitrokey/nitrokey-app/issues/399
+    """
+
+    skip_if_device_version_lower_than({'S': 43})
+    skip_if_not_fedora('Tested on Fedora only. To check on other distros.')
+
+    from time import sleep
+    import os
+    from os.path import exists as exist
+    import re
+    try:
+        import pyudev as pu
+        import pexpect
+    except:
+        pytest.skip('Skipping due to missing required packages: pyudev and pexpect.')
+
+    ctx = pu.Context()
+    devices = ctx.list_devices(subsystem='block', ID_VENDOR='Nitrokey')
+    device = None
+    for d in devices:
+        if d.device_type == 'partition':
+            device = '/dev/{}'.format(d.sys_name)
+            break
+    assert device, 'Device could not be found'
+
+    pexpect.run(f'udisksctl unmount -b {device}').decode()
+    sleep(1)
+    _res = pexpect.run(f'udisksctl mount -b {device}').decode()
+    firmware_abs_path = re.findall('at (/.*)\.', _res)
+    assert firmware_abs_path, 'Cannot get mount point'
+    firmware_abs_path = firmware_abs_path[0]
+
+    print('path: {}, device: {}'.format(firmware_abs_path, device))
+    assert firmware_abs_path, 'Cannot get mount point'
+    firmware_abs_path = firmware_abs_path + '/firmware.bin'
+
+    checks = 0
+    checks_add = 0
+
+    if exist(firmware_abs_path):
+        os.remove(firmware_abs_path)
+
+    assert not exist(firmware_abs_path)
+
+    ATTEMPTS = 20
+    for i in range(ATTEMPTS):
+        # if umount is disabled, success rate is 3/10, enabled: 10/10
+        pexpect.run(f'udisksctl unmount -b {device}')
+        assert C.NK_export_firmware(DefaultPasswords.ADMIN) == DeviceErrorCode.STATUS_OK
+        pexpect.run(f'udisksctl mount -b {device}')
+        sleep(1)
+        firmware_file_exist = exist(firmware_abs_path)
+        if firmware_file_exist:
+            checks += 1
+            getsize = os.path.getsize(firmware_abs_path)
+            print('Firmware file exist, size: {}'.format(getsize))
+            checks_add += 1 if getsize >= 100 * 1024 else 0
+            # checks_add += 1 if os.path.getsize(firmware_abs_path) == 256*1024 else 0
+            os.remove(firmware_abs_path)
+        assert not exist(firmware_abs_path)
+
+    print('CHECK {} ; CHECK ADDITIONAL {}'.format(checks, checks_add))
+
+    assert checks == ATTEMPTS
+    assert checks_add == checks
+
+
+def skip_if_not_fedora(message:str) -> None:
+    import os
+    from os.path import exists as exist
+
+    def skip():
+        pytest.skip(message)
+
+    os_release_fp = '/etc/os-release'
+    if not exist(os_release_fp):
+        skip()
+    with open(os_release_fp) as f:
+        os_release_lines = f.readlines()
+    if 'Fedora' not in os_release_lines[0]:
+        skip()
+
+
+@pytest.mark.other
+@pytest.mark.firmware
+def test_export_firmware_extended_macos(C):
+    """
+    Check, whether the firmware file is exported correctly, and in correct size.
+    Apparently, the auto-remounting side effect of the v0.46 change, is disturbing the export process.
+    Unmounting the UV just before the export gives the device 20/20 success rate.
+    Test case for issue https://github.com/Nitrokey/nitrokey-app/issues/399
+    """
+
+    skip_if_device_version_lower_than({'S': 43})
+    skip_if_not_macos('macOS specific test, due to the mount path and command.')
+
+    import pexpect
+    from time import sleep
+    import os
+    from os.path import exists as exist
+    import plistlib
+
+    usb_devices = pexpect.run('system_profiler -xml SPUSBDataType')
+    assert b'Nitrokey' in usb_devices, 'No Nitrokey devices connected'
+    usb_devices_parsed = plistlib.loads(usb_devices)
+
+    assert isinstance(usb_devices_parsed, list), 'usb_devices_parsed has unexpected type'
+
+    # Try to get all USB devices
+    try:
+        devices = usb_devices_parsed[0]['_items'][0]['_items']
+    except KeyError:
+        devices = None
+
+    assert devices is not None, 'could not list USB devices'
+
+    device_item = None
+
+    for item in devices:
+        if '_items' in item:
+            # Fix for macOS 10.13.6, Python 3.6.2
+            item = item['_items'][0]
+        if 'manufacturer' in item and item['manufacturer'] == 'Nitrokey':
+            device_item = item
+
+    # Try to get first volume of USB device
+    try:
+        volume = device_item['Media'][0]['volumes'][0]
+    except (KeyError, TypeError):
+        volume = None
+
+    assert volume is not None, 'could not determine volume'
+    assert 'bsd_name' in volume, 'could not get BSD style device name'
+
+    device = '/dev/' + volume['bsd_name']
+    pexpect.run(f'diskutil mount {device}')
+    sleep(3)
+    assert 'mount_point' in volume, 'could not get mount point'
+    firmware_abs_path = volume['mount_point'] + '/firmware.bin'
+    checks = 0
+    print('path: {}, device: {}'.format(firmware_abs_path, device))
+    checks_add = 0
+
+    if exist(firmware_abs_path):
+        os.remove(firmware_abs_path)
+
+    assert not exist(firmware_abs_path)
+
+    ATTEMPTS = 20
+    for i in range(ATTEMPTS):
+        # if umount is disabled, success rate is 3/10, enabled: 10/10
+        pexpect.run(f'diskutil unmount {device}')
+        assert C.NK_export_firmware(DefaultPasswords.ADMIN) == DeviceErrorCode.STATUS_OK
+        pexpect.run(f'diskutil mount {device}')
+        sleep(1)
+        firmware_file_exist = exist(firmware_abs_path)
+        if firmware_file_exist:
+            checks += 1
+            getsize = os.path.getsize(firmware_abs_path)
+            print('Firmware file exist, size: {}'.format(getsize))
+            checks_add += 1 if getsize >= 100 * 1024 else 0
+            # checks_add += 1 if os.path.getsize(firmware_abs_path) == 256*1024 else 0
+            os.remove(firmware_abs_path)
+        assert not exist(firmware_abs_path)
+
+    print('CHECK {} ; CHECK ADDITIONAL {}'.format(checks, checks_add))
+
+    assert checks == ATTEMPTS
+    assert checks_add == checks
+
+
+def skip_if_not_macos(message:str) -> None:
+    import platform
+
+    if platform.system() != 'Darwin':
+        pytest.skip(message)
