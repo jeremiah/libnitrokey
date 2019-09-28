@@ -48,6 +48,7 @@ class DeviceErrorCode:
     WRONG_PASSWORD = 4
     STATUS_NOT_AUTHORIZED = 5
     STATUS_AES_DEC_FAILED = 0xa
+    STATUS_UNKNOWN_ERROR = 100
 
 
 class LibraryErrors:
@@ -56,3 +57,6 @@ class LibraryErrors:
     INVALID_HEX_STRING = 202
     TARGET_BUFFER_SIZE_SMALLER_THAN_SOURCE = 203
 
+
+HOTP_slot_count = 3
+TOTP_slot_count = 15
