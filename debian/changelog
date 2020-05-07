@@ -1,8 +1,9 @@
-libnitrokey (3.5-2) UNRELEASED; urgency=medium
+libnitrokey (3.5-2) unstable; urgency=medium
 
-  * Update symbols files from experimental build logs
+  * Upload to unstable
+  * Update symbols files from experimental build logs (Closes: #958313)
 
- -- Scott Kitterman <scott@kitterman.com>  Wed, 02 Oct 2019 04:56:14 -0400
+ -- Scott Kitterman <scott@kitterman.com>  Thu, 07 May 2020 15:43:59 -0400
 
 libnitrokey (3.5-1) experimental; urgency=medium
 
