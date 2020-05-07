@@ -2,6 +2,7 @@ libnitrokey (3.5-2) unstable; urgency=medium
 
   * Upload to unstable
   * Update symbols files from experimental build logs (Closes: #958313)
+  * Switch to debhelper-compat and update to compat 12
 
  -- Scott Kitterman <scott@kitterman.com>  Thu, 07 May 2020 15:43:59 -0400
 
