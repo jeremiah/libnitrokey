@@ -21,7 +21,7 @@ IF (UNIX)
     ENDIF()
 ENDIF()
 
-project(libnitrokey LANGUAGES C CXX VERSION 3.5.0)
+project(libnitrokey LANGUAGES C CXX VERSION 3.5.9)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -129,7 +129,14 @@ execute_process(
 	ERROR_QUIET
 )
 ENDIF()
-IF((NOT ${ADD_GIT_INFO}) OR (${PROJECT_VERSION_GIT_RETURN_CODE}))
+# the version.h generation logic is tricky in a number of ways:
+# 1. git describe on a release tarball will always fail with
+#    a non-zero return code, usually 128
+# 2. If git is not installed, PROJECT_VERSION_GIT_RETURN_CODE
+#    will contain the string 'No such file or directory'
+# Hence fallback to PROJECT_VERSION when the return code is NOT 0.
+IF((NOT ${ADD_GIT_INFO}) OR (NOT ${PROJECT_VERSION_GIT_RETURN_CODE} STREQUAL "0"))
+	MESSAGE(STATUS "Setting fallback Git library version")
 	SET(PROJECT_VERSION_GIT "v${PROJECT_VERSION}")
 ENDIF()
 MESSAGE(STATUS "Setting Git library version to: " ${PROJECT_VERSION_GIT} )
