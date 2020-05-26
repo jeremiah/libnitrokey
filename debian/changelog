@@ -1,3 +1,9 @@
+libnitrokey (3.5-0pureos1) ; urgency=medium
+
+  * Updating with support for Purism's Librem Key.
+
+ -- Jeremiah C. Foster <jeremiah.foster@puri.sm>  Tue, 26 May 2020 16:54:26 -0400
+
 libnitrokey (3.5-2) unstable; urgency=medium
 
   * Upload to unstable
