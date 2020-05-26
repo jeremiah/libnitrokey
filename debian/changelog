@@ -1,4 +1,4 @@
-libnitrokey (3.5-0pureos1) ; urgency=medium
+libnitrokey (3.5-0pureos1) byzantium; urgency=medium
 
   * Updating with support for Purism's Librem Key.
 
