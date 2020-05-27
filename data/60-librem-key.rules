@@ -1,0 +1,3 @@
+# my librem key
+SUBSYSTEM=="usb", ATTR{idVendor}=="316d", ATTR{idProduct}=="4c4b", ENV{ID_SMARTCARD_READER}="1", ENV{ID_SMARTCARD_READER_DRIVER}="gnupg"
+
