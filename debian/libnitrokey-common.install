@@ -1,2 +1,2 @@
-/usr/lib/udev/rules.d/41-nitrokey.rules
-/usr/lib/udev/rules.d/60-librem-key.rules
+usr/lib/udev/rules.d/41-nitrokey.rules
+data/60-librem-key.rules usr/lib/udev/rules.d/60-librem-key.rules
