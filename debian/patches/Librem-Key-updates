@@ -1,0 +1,419 @@
+Description: updates for the Librem Key
+
+ The Purism Librem Key is based on the Nitrokey Pro and can work with
+ Nitrokey's software. These patches bring in need source code to help
+ Nitrokey's software to recognize and function with the Librem Key.
+ .
+ libnitrokey (3.5-0pureos1) byzantium; urgency=medium
+ .
+   * Updating with support for Purism's Librem Key.
+Author: Jeremiah C. Foster <jeremiah.foster@puri.sm>
+
+---
+
+Last-Update: 2020-05-27
+
+--- libnitrokey-3.5.orig/CMakeLists.txt
++++ libnitrokey-3.5/CMakeLists.txt
+@@ -21,7 +21,7 @@ IF (UNIX)
+     ENDIF()
+ ENDIF()
+ 
+-project(libnitrokey LANGUAGES C CXX VERSION 3.5.0)
++project(libnitrokey LANGUAGES C CXX VERSION 3.5.9)
+ set(CMAKE_CXX_STANDARD 14)
+ set(CMAKE_CXX_STANDARD_REQUIRED ON)
+ set(CMAKE_CXX_EXTENSIONS OFF)
+@@ -129,7 +129,14 @@ execute_process(
+ 	ERROR_QUIET
+ )
+ ENDIF()
+-IF((NOT ${ADD_GIT_INFO}) OR (${PROJECT_VERSION_GIT_RETURN_CODE}))
++# the version.h generation logic is tricky in a number of ways:
++# 1. git describe on a release tarball will always fail with
++#    a non-zero return code, usually 128
++# 2. If git is not installed, PROJECT_VERSION_GIT_RETURN_CODE
++#    will contain the string 'No such file or directory'
++# Hence fallback to PROJECT_VERSION when the return code is NOT 0.
++IF((NOT ${ADD_GIT_INFO}) OR (NOT ${PROJECT_VERSION_GIT_RETURN_CODE} STREQUAL "0"))
++	MESSAGE(STATUS "Setting fallback Git library version")
+ 	SET(PROJECT_VERSION_GIT "v${PROJECT_VERSION}")
+ ENDIF()
+ MESSAGE(STATUS "Setting Git library version to: " ${PROJECT_VERSION_GIT} )
+@@ -150,6 +157,8 @@ IF(NOT WIN32)
+         ELSE()
+             set(CMAKE_INSTALL_UDEVRULESDIR "${CMAKE_INSTALL_UDEVRULESDIR}/rules.d")
+         ENDIF()
++        string(REGEX REPLACE "^/" "" CMAKE_INSTALL_UDEVRULESDIR "${CMAKE_INSTALL_UDEVRULESDIR}")
++        string(REGEX REPLACE "^usr/" "" CMAKE_INSTALL_UDEVRULESDIR "${CMAKE_INSTALL_UDEVRULESDIR}") # usual prefix is usr/local
+         message(STATUS "Setting udev rules dir to ${CMAKE_INSTALL_UDEVRULESDIR}")
+     ENDIF()
+ 
+--- libnitrokey-3.5.orig/NK_C_API.cc
++++ libnitrokey-3.5/NK_C_API.cc
+@@ -158,6 +158,9 @@ extern "C" {
+                     case NK_STORAGE:
+                         model_string = "S";
+                         break;
++                    case NK_LIBREM:
++                        model_string = "L";
++                        break;
+                     case NK_DISCONNECTED:
+                     default:
+                         /* no such enum value -- return error code */
+@@ -236,6 +239,8 @@ extern "C" {
+ 				    return NK_PRO;
+ 				case DeviceModel::STORAGE:
+ 				    return NK_STORAGE;
++				case DeviceModel::LIBREM:
++				    return NK_LIBREM;
+ 				default:
+ 				    /* unknown or not connected device */
+ 				    return NK_device_model::NK_DISCONNECTED;
+@@ -791,6 +796,9 @@ NK_C_API char* NK_get_SD_usage_data_as_s
+ 		case DeviceModel::STORAGE:
+ 			target->model = NK_STORAGE;
+ 			break;
++		case DeviceModel::LIBREM:
++			target->model = NK_LIBREM;
++			break;
+ 		default:
+ 			return false;
+ 		}
+--- libnitrokey-3.5.orig/NK_C_API.h
++++ libnitrokey-3.5/NK_C_API.h
+@@ -67,6 +67,9 @@
+  *         case NK_STORAGE:
+  *                 printf("a Nitrokey Storage");
+  *                 break;
++ *         case NK_LIBREM:
++ *                 printf("a Librem Key");
++ *                 break;
+  *         default:
+  *                 printf("an unsupported Nitrokey");
+  *                 break;
+@@ -111,7 +114,11 @@ extern "C" {
+             /**
+              * Nitrokey Storage.
+              */
+-            NK_STORAGE = 2
++            NK_STORAGE = 2,
++            /**
++             * Librem Key.
++             */
++            NK_LIBREM = 3
+         };
+ 
+         /**
+@@ -327,7 +334,7 @@ extern "C" {
+ 
+ 	/**
+ 	 * Connect to device of given model. Currently library can be connected only to one device at once.
+-	 * @param device_model NK_device_model: NK_PRO: Nitrokey Pro, NK_STORAGE: Nitrokey Storage
++	 * @param device_model NK_device_model: NK_PRO: Nitrokey Pro, NK_STORAGE: Nitrokey Storage, NK_LIBREM: Librem Key
+ 	 * @return 1 if connected, 0 if wrong model or cannot connect
+ 	 */
+         NK_C_API int NK_login_enum(enum NK_device_model device_model);
+--- libnitrokey-3.5.orig/NitrokeyManager.cc
++++ libnitrokey-3.5/NitrokeyManager.cc
+@@ -217,7 +217,12 @@ using nitrokey::misc::strcpyT;
+             }
+         }
+ 
+-        auto info_ptr = hid_enumerate(NITROKEY_VID, 0);
++	auto vendor_id = NITROKEY_VID;
++        auto info_ptr = hid_enumerate(vendor_id, 0);
++	if (!info_ptr) {
++	  vendor_id = PURISM_VID;
++	  info_ptr = hid_enumerate(vendor_id, 0);
++	}
+         auto first_info_ptr = info_ptr;
+         if (!info_ptr)
+           return false;
+@@ -225,7 +230,7 @@ using nitrokey::misc::strcpyT;
+         misc::Option<DeviceModel> model;
+         while (info_ptr && !model.has_value()) {
+             if (path == std::string(info_ptr->path)) {
+-                model = product_id_to_model(info_ptr->product_id);
++                model = product_id_to_model(vendor_id, info_ptr->product_id);
+             }
+             info_ptr = info_ptr->next;
+         }
+@@ -254,7 +259,8 @@ using nitrokey::misc::strcpyT;
+ 
+     bool NitrokeyManager::connect() {
+         std::lock_guard<std::mutex> lock(mex_dev_com_manager);
+-        vector< shared_ptr<Device> > devices = { make_shared<Stick10>(), make_shared<Stick20>() };
++        vector< shared_ptr<Device> > devices = { make_shared<Stick10>(), make_shared<Stick20>(),
++						 make_shared<LibremKey>() };
+         bool connected = false;
+         for( auto & d : devices ){
+             if (d->connect()){
+@@ -290,6 +296,9 @@ using nitrokey::misc::strcpyT;
+             case 'S':
+                 device = make_shared<Stick20>();
+                 break;
++            case 'L':
++                device = make_shared<LibremKey>();
++                break;
+             default:
+                 throw std::runtime_error("Unknown model");
+         }
+@@ -305,6 +314,9 @@ using nitrokey::misc::strcpyT;
+             case device::DeviceModel::STORAGE:
+                 model_string = "S";
+                 break;
++            case device::DeviceModel::LIBREM:
++                model_string = "L";
++                break;
+             default:
+                 throw std::runtime_error("Unknown model");
+         }
+@@ -382,6 +394,7 @@ using nitrokey::misc::strcpyT;
+     string NitrokeyManager::get_serial_number() {
+         if (device == nullptr) { return ""; };
+       switch (device->get_device_model()) {
++        case DeviceModel::LIBREM:
+         case DeviceModel::PRO: {
+           auto response = GetStatus::CommandTransaction::run(device);
+           return nitrokey::misc::toHex(response.data().card_serial_u32);
+@@ -552,6 +565,7 @@ using nitrokey::misc::strcpyT;
+       strcpyT(payload.slot_name, slot_name);
+       strcpyT(payload.slot_token_id, token_ID);
+       switch (device->get_device_model() ){
++        case DeviceModel::LIBREM:
+         case DeviceModel::PRO: {
+           payload.slot_counter = hotp_counter;
+           break;
+@@ -713,6 +727,7 @@ using nitrokey::misc::strcpyT;
+     template <typename ProCommand, PasswordKind StoKind>
+     void NitrokeyManager::change_PIN_general(const char *current_PIN, const char *new_PIN) {
+         switch (device->get_device_model()){
++            case DeviceModel::LIBREM:
+             case DeviceModel::PRO:
+             {
+                 auto p = get_payload<ProCommand>();
+@@ -834,6 +849,7 @@ using nitrokey::misc::strcpyT;
+ 
+     void NitrokeyManager::build_aes_key(const char *admin_password) {
+         switch (device->get_device_model()) {
++            case DeviceModel::LIBREM:
+             case DeviceModel::PRO: {
+                 auto p = get_payload<BuildAESKey>();
+                 strcpyT(p.admin_password, admin_password);
+@@ -858,6 +874,7 @@ using nitrokey::misc::strcpyT;
+ 
+     void NitrokeyManager::unlock_user_password(const char *admin_password, const char *new_user_password) {
+       switch (device->get_device_model()){
++        case DeviceModel::LIBREM:
+         case DeviceModel::PRO: {
+           auto p = get_payload<stick10::UnlockUserPassword>();
+           strcpyT(p.admin_password, admin_password);
+@@ -907,6 +924,7 @@ using nitrokey::misc::strcpyT;
+       //authorization command is supported for versions equal or below:
+         auto m = std::unordered_map<DeviceModel , int, EnumClassHash>({
+                                                {DeviceModel::PRO, 7},
++                                               {DeviceModel::LIBREM, 7},
+                                                {DeviceModel::STORAGE, 53},
+          });
+         return get_minor_firmware_version() <= m[device->get_device_model()];
+@@ -916,6 +934,7 @@ using nitrokey::misc::strcpyT;
+         // 320 bit OTP secret is supported by version bigger or equal to:
+         auto m = std::unordered_map<DeviceModel , int, EnumClassHash>({
+                                                {DeviceModel::PRO, 8},
++                                               {DeviceModel::LIBREM, 8},
+                                                {DeviceModel::STORAGE, 54},
+          });
+         return get_minor_firmware_version() >= m[device->get_device_model()];
+@@ -940,6 +959,7 @@ using nitrokey::misc::strcpyT;
+ 
+     uint8_t NitrokeyManager::get_minor_firmware_version(){
+       switch(device->get_device_model()){
++        case DeviceModel::LIBREM:
+         case DeviceModel::PRO:{
+           auto status_p = GetStatus::CommandTransaction::run(device);
+           return status_p.data().firmware_version_st.minor; //7 or 8
+@@ -956,6 +976,7 @@ using nitrokey::misc::strcpyT;
+     }
+     uint8_t NitrokeyManager::get_major_firmware_version(){
+       switch(device->get_device_model()){
++        case DeviceModel::LIBREM:
+         case DeviceModel::PRO:{
+           auto status_p = GetStatus::CommandTransaction::run(device);
+           return status_p.data().firmware_version_st.major; //0
+--- libnitrokey-3.5.orig/device.cc
++++ libnitrokey-3.5/device.cc
+@@ -45,14 +45,29 @@ const uint16_t nitrokey::device::NITROKE
+ const uint16_t nitrokey::device::NITROKEY_PRO_PID = 0x4108;
+ const uint16_t nitrokey::device::NITROKEY_STORAGE_PID = 0x4109;
+ 
+-Option<DeviceModel> nitrokey::device::product_id_to_model(uint16_t product_id) {
+-  switch (product_id) {
++const uint16_t nitrokey::device::PURISM_VID = 0x316d;
++const uint16_t nitrokey::device::LIBREM_KEY_PID = 0x4c4b;
++
++Option<DeviceModel> nitrokey::device::product_id_to_model(uint16_t vendor_id, uint16_t product_id) {
++  switch (vendor_id) {
++  case NITROKEY_VID:
++    switch (product_id) {
+     case NITROKEY_PRO_PID:
+       return DeviceModel::PRO;
+     case NITROKEY_STORAGE_PID:
+       return DeviceModel::STORAGE;
+     default:
+       return {};
++    }
++  case PURISM_VID:
++    switch (product_id) {
++    case LIBREM_KEY_PID:
++      return DeviceModel::LIBREM;
++    default:
++      return {};
++    }
++  default:
++    return {};
+   }
+ }
+ 
+@@ -67,6 +82,9 @@ std::ostream& nitrokey::device::operator
+     case DeviceModel::STORAGE:
+       stream << "Storage";
+       break;
++    case DeviceModel::LIBREM:
++      stream << "Librem";
++      break;
+     default:
+       stream << "Unknown";
+       break;
+@@ -99,7 +117,9 @@ bool Device::disconnect() {
+ }
+ 
+ bool Device::_disconnect() {
+-  LOG(std::string(__FUNCTION__) + std::string(m_model == DeviceModel::PRO ? "PRO" : "STORAGE"), Loglevel::DEBUG_L2);
++  LOG(std::string(__FUNCTION__) +
++      std::string(m_model == DeviceModel::PRO ? "PRO" : (m_model == DeviceModel::STORAGE ? "STORAGE" : "LIBREM")),
++      Loglevel::DEBUG_L2);
+   LOG(std::string(__FUNCTION__) +  std::string(" *IN* "), Loglevel::DEBUG_L2);
+ 
+   if(mp_devhandle == nullptr) {
+@@ -204,27 +224,33 @@ int Device::recv(void *packet) {
+   return status;
+ }
+ 
+-std::vector<DeviceInfo> Device::enumerate(){
+-  auto pInfo = hid_enumerate(NITROKEY_VID, 0);
+-  auto pInfo_ = pInfo;
+-  std::vector<DeviceInfo> res;
+-  while (pInfo != nullptr){
+-    auto deviceModel = product_id_to_model(pInfo->product_id);
+-    if (deviceModel.has_value()) {
+-      std::string path(pInfo->path);
+-      std::wstring serialNumberW(pInfo->serial_number);
+-      std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+-      std::string serialNumber = converter.to_bytes(serialNumberW);
+-      DeviceInfo info = { deviceModel.value(), path, serialNumber };
+-      res.push_back(info);
++namespace {
++  void add_vendor_devices(std::vector<DeviceInfo>& res, uint16_t vendor_id){
++    auto pInfo = hid_enumerate(vendor_id, 0);
++    auto pInfo_ = pInfo;
++    while (pInfo != nullptr){
++      auto deviceModel = product_id_to_model(vendor_id, pInfo->product_id);
++      if (deviceModel.has_value()) {
++	std::string path(pInfo->path);
++	std::wstring serialNumberW(pInfo->serial_number);
++	std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
++	std::string serialNumber = converter.to_bytes(serialNumberW);
++	DeviceInfo info = { deviceModel.value(), path, serialNumber };
++	res.push_back(info);
++      }
++      pInfo = pInfo->next;
+     }
+-    pInfo = pInfo->next;
+-  }
+ 
+-  if (pInfo_ != nullptr){
+-    hid_free_enumeration(pInfo_);
++    if (pInfo_ != nullptr){
++      hid_free_enumeration(pInfo_);
++    }
+   }
++}
+ 
++std::vector<DeviceInfo> Device::enumerate(){
++  std::vector<DeviceInfo> res;
++  ::add_vendor_devices(res, NITROKEY_VID);
++  ::add_vendor_devices(res, PURISM_VID);
+   return res;
+ }
+ 
+@@ -234,6 +260,8 @@ std::shared_ptr<Device> Device::create(D
+       return std::make_shared<Stick10>();
+     case DeviceModel::STORAGE:
+       return std::make_shared<Stick20>();
++    case DeviceModel::LIBREM:
++      return std::make_shared<LibremKey>();
+     default:
+       return {};
+   }
+@@ -304,6 +332,13 @@ Stick20::Stick20():
+   {
+     setDefaultDelay();
+   }
++
++
++LibremKey::LibremKey():
++  Device(PURISM_VID, LIBREM_KEY_PID, DeviceModel::LIBREM, 100ms, 5, 100ms)
++  {
++    setDefaultDelay();
++  }
+ 
+ #include <sstream>
+ #define p(x) ss << #x << " " << x << ", ";
+--- libnitrokey-3.5.orig/libnitrokey/device.h
++++ libnitrokey-3.5/libnitrokey/device.h
+@@ -50,7 +50,8 @@ namespace device {
+ 
+ enum class DeviceModel{
+     PRO,
+-    STORAGE
++    STORAGE,
++    LIBREM
+ };
+ 
+ std::ostream& operator<<(std::ostream& stream, DeviceModel model);
+@@ -67,12 +68,20 @@ extern const uint16_t NITROKEY_PRO_PID;
+  * The USB product ID for the Nitrokey Storage.
+  */
+ extern const uint16_t NITROKEY_STORAGE_PID;
++/**
++ * The USB vendor ID for Purism devices.
++ */
++extern const uint16_t PURISM_VID;
++/**
++ * The USB product ID for the Librem Key.
++ */
++extern const uint16_t LIBREM_KEY_PID;
+ 
+ /**
+  * Convert the given USB product ID to a Nitrokey model.  If there is no model
+  * with that ID, return an absent value.
+  */
+-misc::Option<DeviceModel> product_id_to_model(uint16_t product_id);
++misc::Option<DeviceModel> product_id_to_model(uint16_t vendor_id, uint16_t product_id);
+ 
+ /**
+  * Information about a connected device.
+@@ -219,6 +228,12 @@ class Stick20 : public Device {
+  public:
+   Stick20();
+ };
++
++class LibremKey : public Device {
++ public:
++  LibremKey();
++};
++
+ }
+ }
+ #endif
