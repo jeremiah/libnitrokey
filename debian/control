@@ -1,13 +1,12 @@
 Source: libnitrokey
 Priority: optional
 Maintainer: PureOS Maintainers <pureos-project@lists.puri.sm>
-Uploaders: Jeremiah C. Foster <jeremiah.foster@puri.sm>
 XSBC-Original-Maintainer: Scott Kitterman <scott@kitterman.com>
 Build-Depends: debhelper-compat (= 12), cmake, pkg-config, pkg-kde-tools, libhidapi-dev, libusb-1.0-0-dev, udev
 Standards-Version: 4.5.0
 Section: libs
-Vcs-Git: https://salsa.debian.org/kitterman/libnitrokey.git
-Vcs-Browser: https://salsa.debian.org/kitterman/libnitrokey
+Vcs-Git:  https://salsa.debian.org/kitterman/libnitrokey.git
+Vcs-Browser: https://source.puri.sm/pureos/packages/libnitrokey
 Homepage: https://github.com/Nitrokey/libnitrokey
 
 Package: libnitrokey-dev
